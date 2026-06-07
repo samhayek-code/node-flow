@@ -20,12 +20,13 @@ interface Box {
   h: number;
 }
 
-/** A blob's box scaled around its center by `scale`. */
-function scaledBox(b: Blob, scale: number): Box {
+/** A blob's box scaled around its center by `scalePercent` (100 = detected). */
+function scaledBox(b: Blob, scalePercent: number): Box {
   const cx = b.x + b.w / 2;
   const cy = b.y + b.h / 2;
-  const w = b.w * scale;
-  const h = b.h * scale;
+  const f = scalePercent / 100;
+  const w = b.w * f;
+  const h = b.h * f;
   return { x: cx - w / 2, y: cy - h / 2, w, h };
 }
 

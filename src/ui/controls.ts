@@ -4,9 +4,6 @@ import type { Params, ExportSettings } from "../params";
 import { DEFAULT_PARAMS, DEFAULT_EXPORT } from "../params";
 
 export interface ControlCallbacks {
-  onGenerated: () => void;
-  onPickFile: () => void;
-  onWebcam: () => void;
   onExport: () => void;
   onSavePreset: () => void;
   onLoadPreset: () => void;
@@ -30,19 +27,72 @@ const sel = <T extends string | number>(value: T, options: T[], label: string, h
 const bool = (value: boolean, label: string, hint: string) => ({ value, label, hint });
 const color = (value: string, label: string, hint: string) => ({ value, label, hint });
 
+const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+const r2 = (x: number) => Number(x.toFixed(2));
+
 const COLLAPSED = { collapsed: true };
 
 /** Wires the full parameter set into a grouped, labelled Leva panel and returns
- *  the live values plus a `set` function (used by preset loading). */
+ *  the live values plus a `set` function (used by preset loading + macros). */
 export function useNodeVideoControls(callbacks: ControlCallbacks) {
   const cb = useRef(callbacks);
   cb.current = callbacks;
 
+  // Holds the latest `set` so macro onChange handlers can drive other params.
+  const setRef = useRef<((patch: Record<string, unknown>) => void) | null>(null);
+  const apply = (patch: Record<string, unknown>) => setRef.current?.(patch);
+
   const [values, set] = useControls(() => ({
-    Source: folder({
-      "Use generated": button(() => cb.current.onGenerated()),
-      "Open video…": button(() => cb.current.onPickFile()),
-      Webcam: button(() => cb.current.onWebcam()),
+    Global: folder({
+      responsiveness: {
+        value: 0.5,
+        min: 0,
+        max: 1,
+        step: 0.01,
+        label: "Responsiveness",
+        hint: "One knob for snappiness — sensitivity, trail length, and box easing together.",
+        onChange: (v: number, _p: string, ctx: { initial: boolean }) => {
+          if (ctx.initial) return;
+          apply({
+            motionThreshold: Number(lerp(0.14, 0.02, v).toFixed(3)),
+            trailDecay: r2(lerp(0.92, 0.4, v)),
+            boxSmoothing: r2(lerp(0.75, 0.05, v)),
+          });
+        },
+      },
+      density: {
+        value: 0.5,
+        min: 0,
+        max: 1,
+        step: 0.01,
+        label: "Density",
+        hint: "More and finer blobs, with longer-range connections.",
+        onChange: (v: number, _p: string, ctx: { initial: boolean }) => {
+          if (ctx.initial) return;
+          apply({
+            motionGrid: Math.round(lerp(48, 200, v)),
+            maxBlobs: Math.round(lerp(4, 30, v)),
+            connectorMaxDist: Math.round(lerp(120, 600, v)),
+          });
+        },
+      },
+      boldness: {
+        value: 0.5,
+        min: 0,
+        max: 1,
+        step: 0.01,
+        label: "Boldness",
+        hint: "Chunkier effect cells, thicker outlines and links, larger shapes.",
+        onChange: (v: number, _p: string, ctx: { initial: boolean }) => {
+          if (ctx.initial) return;
+          apply({
+            pixelSize: Math.round(lerp(2, 14, v)),
+            boxWidth: Number(lerp(0.5, 4, v).toFixed(1)),
+            connectorWidth: Number(lerp(0.5, 3.5, v).toFixed(1)),
+            boxScale: Math.round(lerp(80, 160, v)),
+          });
+        },
+      },
     }),
     Render: folder(
       {
@@ -64,10 +114,10 @@ export function useNodeVideoControls(callbacks: ControlCallbacks) {
       {
         minBlobSize: n(DEFAULT_PARAMS.minBlobSize, 1, 80, 1, "Min size", "Smallest motion cluster to track, in grid cells. Filters out specks."),
         maxBlobSize: n(DEFAULT_PARAMS.maxBlobSize, 0.02, 1, 0.01, "Max size", "Largest blob allowed, as a share of the frame. 1 = no cap."),
+        boxScale: n(DEFAULT_PARAMS.boxScale, 30, 300, 5, "Size %", "Scale each shape around its center. 100% = the detected size."),
         maxBlobs: n(DEFAULT_PARAMS.maxBlobs, 1, 40, 1, "Max count", "How many blobs can be tracked at once (largest win)."),
         mergeDistance: n(DEFAULT_PARAMS.mergeDistance, 0, 320, 1, "Merge distance", "Blobs whose centers are closer than this (px) fuse into one."),
         boxPadding: n(DEFAULT_PARAMS.boxPadding, 0, 60, 1, "Padding", "Extra space added around each detected region (px)."),
-        boxScale: n(DEFAULT_PARAMS.boxScale, 0.3, 3, 0.05, "Size", "Scale each shape around its center. 1 = detected size."),
         boxShape: sel(DEFAULT_PARAMS.boxShape, ["rect", "circle", "ellipse", "diamond"], "Shape", "Outline and effect-mask shape. Circle/diamond are pure; ellipse follows the box."),
         boxSmoothing: n(DEFAULT_PARAMS.boxSmoothing, 0, 0.95, 0.01, "Smoothing", "Ease shape movement frame to frame. Higher = smoother but laggier."),
         showBoxes: bool(DEFAULT_PARAMS.showBoxes, "Show outlines", "Draw the blob outlines on top of the video."),
@@ -120,10 +170,11 @@ export function useNodeVideoControls(callbacks: ControlCallbacks) {
     ),
   }));
 
-  const setRef = useRef(set);
   useEffect(() => {
-    setRef.current = set;
+    setRef.current = set as unknown as (patch: Record<string, unknown>) => void;
   }, [set]);
+  // Ensure it's available before the first effect flush too.
+  setRef.current = set as unknown as (patch: Record<string, unknown>) => void;
 
   return { values: values as unknown as Params & ExportSettings, set };
 }

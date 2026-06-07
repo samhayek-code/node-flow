@@ -39,7 +39,7 @@ function randomLook(): Partial<Params> {
     invert: Math.random() < 0.2,
     effectColor: pickOne(PALETTE),
     boxShape: pickOne(RAND_SHAPES),
-    boxScale: Number(randf(0.8, 1.6).toFixed(2)),
+    boxScale: Math.round(randf(80, 160)),
     boxColor: pickOne(PALETTE),
     connectorStyle: pickOne(RAND_CONNECTORS),
     connectorCurve: Number(randf(-0.5, 0.5).toFixed(2)),
@@ -164,9 +164,6 @@ export function App() {
   }, [exportProgress, flash]);
 
   const { values, set } = useNodeVideoControls({
-    onGenerated: useGenerated,
-    onPickFile: () => fileInputRef.current?.click(),
-    onWebcam: useWebcam,
     onExport: runExport,
     onSavePreset: savePreset,
     onLoadPreset: () => presetInputRef.current?.click(),
@@ -279,7 +276,31 @@ export function App() {
 
       <div style={styles.body}>
         <aside style={styles.sidebar}>
-          <Leva fill flat titleBar={{ title: "Controls" }} theme={LEVA_THEME} />
+          <div className="nv-toolbar">
+            <button
+              className="nv-rand"
+              onClick={() => {
+                set(randomLook() as never);
+                flash("Randomized ✨");
+              }}
+            >
+              ✦ Randomize
+            </button>
+            <div className="nv-sources">
+              <button className="nv-src nv-src-gen" onClick={useGenerated}>
+                Generated
+              </button>
+              <button className="nv-src nv-src-file" onClick={() => fileInputRef.current?.click()}>
+                File
+              </button>
+              <button className="nv-src nv-src-cam" onClick={useWebcam}>
+                Webcam
+              </button>
+            </div>
+          </div>
+          <div className="nv-leva-scroll">
+            <Leva fill flat titleBar={{ title: "Controls" }} theme={LEVA_THEME} />
+          </div>
         </aside>
 
         <div style={styles.main}>
@@ -326,15 +347,6 @@ export function App() {
                   : "Generated source — drag in a video to scrub a timeline, or export this pattern as-is."}
               </span>
             )}
-            <button
-              className="nv-btn"
-              onClick={() => {
-                set(randomLook() as never);
-                flash("Randomized ✨");
-              }}
-            >
-              Randomize
-            </button>
             <button className="nv-btn" onClick={runExport} disabled={exportProgress !== null}>
               Export .mp4
             </button>
@@ -385,7 +397,8 @@ const styles: Record<string, React.CSSProperties> = {
     width: 360,
     flexShrink: 0,
     height: "100%",
-    overflowY: "auto",
+    display: "flex",
+    flexDirection: "column",
     borderRight: "1px solid rgba(255,255,255,0.08)",
     background: "#0d0d0f",
   },

@@ -5,8 +5,7 @@ motion, wraps them in tracked boxes, links them with connectors, and renders a
 pixel effect inside each region. Tune everything live, then export a
 frame-perfect mp4.
 
-Inspired by Maxime Heckel's `blob-tracking` experiment, rebuilt as an
-extensible Canvas2D pipeline you can hack on.
+An extensible Canvas2D pipeline you can hack on.
 
 **Live:** https://node-flow-roan.vercel.app · **Source:** https://github.com/samhayek-code/node-flow
 

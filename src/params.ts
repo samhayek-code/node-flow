@@ -34,8 +34,8 @@ export interface Params {
   maxBlobs: number;
   mergeDistance: number; // px; blobs closer than this merge
   boxPadding: number; // px added around each box
-  boxScale: number; // multiplier on box size around its centroid
-  boxShape: BoxShape; // rectangle or circle/ellipse
+  boxScale: number; // box size as a percent of the detected region (100 = detected)
+  boxShape: BoxShape; // rect, circle, ellipse, or diamond
   boxSmoothing: number; // 0..1 lerp toward new geometry (0 = instant, 0.9 = sluggish)
   boxColor: string;
   boxWidth: number;
@@ -87,7 +87,7 @@ export const DEFAULT_PARAMS: Params = {
   maxBlobs: 12,
   mergeDistance: 40,
   boxPadding: 10,
-  boxScale: 1,
+  boxScale: 100,
   boxShape: "rect",
   boxSmoothing: 0.35,
   boxColor: "#ffffff",
