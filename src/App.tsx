@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Leva } from "leva";
+import { Shuffle, Download, Sparkles, Film, Webcam, Play, Pause, Workflow, Boxes, Activity, Maximize2 } from "lucide-react";
 import { Renderer } from "./render/compose";
 import { createState } from "./pipeline/types";
 import type { FrameSource } from "./pipeline/source";
@@ -12,13 +13,31 @@ import "./app.css";
 const PRESET_KEYS = [...Object.keys(DEFAULT_PARAMS), ...Object.keys(DEFAULT_EXPORT)];
 
 const LEVA_THEME = {
-  sizes: { rootWidth: "344px", rowHeight: "30px", titleBarHeight: "44px" },
-  fontSizes: { root: "13px" },
+  colors: {
+    elevation1: "#0b0b0d",
+    elevation2: "#141418",
+    elevation3: "#1d1d22",
+    accent1: "#2f6fed",
+    accent2: "#3b82f6",
+    accent3: "#60a5fa",
+    highlight1: "#6e6e77",
+    highlight2: "#a8a8b0",
+    highlight3: "#f2f2f4",
+    vivid1: "#3b82f6",
+  },
+  sizes: {
+    controlWidth: "126px",
+    numberInputMinWidth: "62px",
+    rowHeight: "30px",
+    folderTitleHeight: "32px",
+  },
+  fontSizes: { root: "12.5px" },
   fonts: {
     sans: "Geist Variable, ui-sans-serif, system-ui, sans-serif",
     mono: "Geist Mono Variable, ui-monospace, monospace",
   },
-  radii: { lg: "12px" },
+  space: { rowGap: "8px", md: "10px" },
+  radii: { xs: "4px", sm: "6px", lg: "10px" },
 } as const;
 
 const PALETTE = ["#ffffff", "#6ea8fe", "#ff6b6b", "#ffd166", "#06d6a0", "#f72585", "#4cc9f0", "#80ffdb", "#ff9e00", "#b5179e"];
@@ -248,11 +267,11 @@ export function App() {
   );
 
   const pct = transport.duration > 0 ? (transport.time / transport.duration) * 100 : 0;
-  const rangeBg = `linear-gradient(to right, #6ea8fe ${pct}%, rgba(255,255,255,0.14) ${pct}%)`;
+  const rangeBg = `linear-gradient(to right, #3b82f6 ${pct}%, rgba(255,255,255,0.12) ${pct}%)`;
 
   return (
     <div
-      style={styles.shell}
+      className="nv-shell"
       onDragOver={(e) => {
         e.preventDefault();
         setDragging(true);
@@ -262,21 +281,51 @@ export function App() {
     >
       <header className="nv-topbar">
         <span className="nv-wordmark">
+          <Workflow className="nv-mark" size={19} strokeWidth={2.2} />
           node<b>·</b>flow
         </span>
         <span className="nv-chip">{hud.source}</span>
         <div className="nv-stats">
-          <span>
+          <span className="nv-stat">
+            <Maximize2 size={13} strokeWidth={2} />
             {hud.w}×{hud.h}
           </span>
-          <span>{hud.blobs} blobs</span>
-          <span>{hud.fps} fps</span>
+          <span className="nv-stat">
+            <Boxes size={13} strokeWidth={2} />
+            {hud.blobs}
+          </span>
+          <span className="nv-stat">
+            <Activity size={13} strokeWidth={2} />
+            {hud.fps} fps
+          </span>
         </div>
       </header>
 
-      <div style={styles.body}>
-        <aside style={styles.sidebar}>
-          <div className="nv-toolbar">
+      <div className="nv-body">
+        <aside className="nv-sidebar">
+          <div className="nv-section">
+            <div className="nv-label">Source</div>
+            <div className="nv-sources">
+              <button className="nv-src nv-src-gen" onClick={useGenerated}>
+                <Sparkles size={15} strokeWidth={2} />
+                Generated
+              </button>
+              <button className="nv-src nv-src-file" onClick={() => fileInputRef.current?.click()}>
+                <Film size={15} strokeWidth={2} />
+                File
+              </button>
+              <button className="nv-src nv-src-cam" onClick={useWebcam}>
+                <Webcam size={15} strokeWidth={2} />
+                Webcam
+              </button>
+            </div>
+          </div>
+
+          <div className="nv-leva-scroll">
+            <Leva fill flat titleBar={false} theme={LEVA_THEME} />
+          </div>
+
+          <div className="nv-section nv-rand-section">
             <button
               className="nv-rand"
               onClick={() => {
@@ -284,33 +333,20 @@ export function App() {
                 flash("Randomized ✨");
               }}
             >
-              ✦ Randomize
+              <Shuffle size={16} strokeWidth={2.4} />
+              Randomize
             </button>
-            <div className="nv-sources">
-              <button className="nv-src nv-src-gen" onClick={useGenerated}>
-                Generated
-              </button>
-              <button className="nv-src nv-src-file" onClick={() => fileInputRef.current?.click()}>
-                File
-              </button>
-              <button className="nv-src nv-src-cam" onClick={useWebcam}>
-                Webcam
-              </button>
-            </div>
-          </div>
-          <div className="nv-leva-scroll">
-            <Leva fill flat titleBar={{ title: "Controls" }} theme={LEVA_THEME} />
           </div>
         </aside>
 
-        <div style={styles.main}>
-          <div style={styles.stage}>
-            <canvas ref={canvasRef} style={styles.canvas} />
-            {dragging && <div style={styles.dropHint}>Drop video to use as source</div>}
+        <div className="nv-main">
+          <div className="nv-stage">
+            <canvas ref={canvasRef} className="nv-canvas" />
+            {dragging && <div className="nv-drophint">Drop video to use as source</div>}
             {loading && (
-              <div style={styles.loadingOverlay}>
+              <div className="nv-loading">
                 <div className="nv-spinner" />
-                <div style={{ marginTop: 14, fontSize: 14 }}>Decoding video…</div>
+                <div>Decoding video…</div>
               </div>
             )}
           </div>
@@ -319,11 +355,11 @@ export function App() {
             {transport.seekable ? (
               <>
                 <button
-                  className="nv-btn nv-btn-icon"
+                  className="nv-icon-btn"
                   onClick={togglePlay}
                   aria-label={transport.playing ? "Pause" : "Play"}
                 >
-                  {transport.playing ? "❚❚" : "▶"}
+                  {transport.playing ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}
                 </button>
                 <input
                   className="nv-range"
@@ -335,6 +371,7 @@ export function App() {
                   onChange={onScrub}
                   style={{ background: rangeBg }}
                   aria-label="Seek"
+                  aria-valuetext={`${formatTime(transport.time)} of ${formatTime(transport.duration)}`}
                 />
                 <span className="nv-time">
                   {formatTime(transport.time)} / {formatTime(transport.duration)}
@@ -344,10 +381,11 @@ export function App() {
               <span className="nv-hint">
                 {hud.source === "webcam"
                   ? "Webcam is live — no timeline to scrub."
-                  : "Generated source — drag in a video to scrub a timeline, or export this pattern as-is."}
+                  : "Generated source — drag in a video to scrub a timeline, or export this pattern."}
               </span>
             )}
-            <button className="nv-btn" onClick={runExport} disabled={exportProgress !== null}>
+            <button className="nv-export" onClick={runExport} disabled={exportProgress !== null}>
+              <Download size={16} strokeWidth={2.2} />
               Export .mp4
             </button>
           </footer>
@@ -355,20 +393,18 @@ export function App() {
       </div>
 
       {exportProgress !== null && (
-        <div style={styles.overlay}>
-          <div style={styles.modal} role="status" aria-live="polite">
-            <div style={{ fontSize: 15, marginBottom: 12 }}>
-              Rendering frames… {Math.round(exportProgress * 100)}%
-            </div>
-            <div style={styles.track}>
-              <div style={{ ...styles.fill, width: `${exportProgress * 100}%` }} />
+        <div className="nv-overlay">
+          <div className="nv-modal" role="status" aria-live="polite">
+            <div className="nv-modal-title">Rendering frames… {Math.round(exportProgress * 100)}%</div>
+            <div className="nv-track">
+              <div className="nv-fill" style={{ width: `${exportProgress * 100}%` }} />
             </div>
           </div>
         </div>
       )}
 
       <div role="status" aria-live="polite">
-        {toast && <div style={styles.toast}>{toast}</div>}
+        {toast && <div className="nv-toast">{toast}</div>}
       </div>
 
       <input
@@ -388,86 +424,3 @@ export function App() {
     </div>
   );
 }
-
-const styles: Record<string, React.CSSProperties> = {
-  shell: { position: "relative", height: "100%", display: "flex", flexDirection: "column" },
-  body: { flex: 1, minHeight: 0, display: "flex" },
-  main: { flex: 1, minWidth: 0, display: "flex", flexDirection: "column" },
-  sidebar: {
-    width: 360,
-    flexShrink: 0,
-    height: "100%",
-    display: "flex",
-    flexDirection: "column",
-    borderRight: "1px solid rgba(255,255,255,0.08)",
-    background: "#0d0d0f",
-  },
-  stage: {
-    flex: 1,
-    minHeight: 0,
-    position: "relative",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 28,
-    background: "radial-gradient(circle at 50% 30%, #131316, #0a0a0b 70%)",
-  },
-  canvas: {
-    maxWidth: "100%",
-    maxHeight: "100%",
-    objectFit: "contain",
-    borderRadius: 8,
-    boxShadow: "0 24px 70px rgba(0,0,0,0.55)",
-    background: "#000",
-  },
-  dropHint: {
-    position: "absolute",
-    inset: 28,
-    border: "2px dashed rgba(255,255,255,0.5)",
-    borderRadius: 12,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: 20,
-    background: "rgba(10,10,12,0.6)",
-    pointerEvents: "none",
-  },
-  loadingOverlay: {
-    position: "absolute",
-    inset: 0,
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "center",
-    background: "rgba(10,10,12,0.55)",
-    color: "#e7e7ea",
-  },
-  overlay: {
-    position: "absolute",
-    inset: 0,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    background: "rgba(0,0,0,0.6)",
-  },
-  modal: {
-    width: 360,
-    padding: 24,
-    borderRadius: 12,
-    background: "#17171a",
-    border: "1px solid rgba(255,255,255,0.1)",
-  },
-  track: { height: 8, borderRadius: 4, background: "rgba(255,255,255,0.12)", overflow: "hidden" },
-  fill: { height: "100%", background: "#6ea8fe", transition: "width 0.1s linear" },
-  toast: {
-    position: "absolute",
-    bottom: 92,
-    left: "50%",
-    transform: "translateX(-50%)",
-    padding: "10px 16px",
-    borderRadius: 9,
-    background: "rgba(20,20,24,0.95)",
-    border: "1px solid rgba(255,255,255,0.12)",
-    fontSize: 14,
-  },
-};

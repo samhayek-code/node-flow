@@ -18,8 +18,8 @@ body,
 #root {
   margin: 0;
   height: 100%;
-  background: #0a0a0b;
-  color: #e7e7ea;
+  background: #08080a;
+  color: #ececef;
   font-family: var(--font-sans);
 }
 
