@@ -8,6 +8,8 @@ frame-perfect mp4.
 Inspired by Maxime Heckel's `blob-tracking` experiment, rebuilt as an
 extensible Canvas2D pipeline you can hack on.
 
+**Live:** https://node-flow-roan.vercel.app · **Source:** https://github.com/samhayek-code/node-flow
+
 ## Run
 
 ```bash
