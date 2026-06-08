@@ -30,12 +30,12 @@ export interface Params {
   preBlur: number; // px blur applied before differencing
 
   // Blobs
-  minBlobSize: number; // min active cells for a blob
-  maxBlobSize: number; // max blob area as a fraction of the grid (1 = no cap)
+  boxScale: number; // primary Size, 0..100 (100 ≈ short edge of the canvas)
+  minBlobSize: number; // Min size as a % of the primary Size (0..100)
+  maxBlobSize: number; // Max size as a % of the primary Size (0..100)
   maxBlobs: number;
   mergeDistance: number; // px; blobs closer than this merge
   boxPadding: number; // px added around each box
-  boxScale: number; // box size as a percent of the detected region (100 = detected)
   boxShape: BoxShape; // rect, circle, ellipse, or diamond
   boxSmoothing: number; // 0..1 lerp toward new geometry (0 = instant, 0.9 = sluggish)
   boxColor: string;
@@ -87,12 +87,12 @@ export const DEFAULT_PARAMS: Params = {
   trailDecay: 0.82,
   preBlur: 1,
 
-  minBlobSize: 6,
-  maxBlobSize: 1,
+  boxScale: 40,
+  minBlobSize: 30,
+  maxBlobSize: 100,
   maxBlobs: 12,
   mergeDistance: 40,
   boxPadding: 10,
-  boxScale: 100,
   boxShape: "rect",
   boxSmoothing: 0.35,
   boxColor: "#ffffff",

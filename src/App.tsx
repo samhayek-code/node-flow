@@ -52,7 +52,7 @@ const LEVA_THEME = {
 /** Color + lucide icon per Leva folder, applied to the title by text match. */
 const FOLDER_DECOR: Record<string, { color: string; icon: string }> = {
   Global: { color: "#3b82f6", icon: slidersIcon },
-  Render: { color: "#94a3b8", icon: monitorIcon },
+  Canvas: { color: "#94a3b8", icon: monitorIcon },
   Motion: { color: "#2dd4bf", icon: activityIcon },
   Blobs: { color: "#fbbf24", icon: shapesIcon },
   Connectors: { color: "#a78bfa", icon: splineIcon },
@@ -75,6 +75,7 @@ function randomLook(): Record<string, number | string | boolean> {
     responsiveness: Number(randf(0.25, 0.9).toFixed(2)),
     density: Number(randf(0.3, 0.85).toFixed(2)),
     boldness: Number(randf(0.25, 0.85).toFixed(2)),
+    size: Number(randf(0.2, 0.7).toFixed(2)),
     effect: pickOne(RAND_EFFECTS),
     effectScope: Math.random() < 0.7 ? "blobs" : "full",
     levels: Math.round(randf(2, 6)),
@@ -259,6 +260,7 @@ export function App() {
     if (!root) return;
     const decorate = () => {
       const seen = new Set<string>();
+      const titles: { el: HTMLElement; color: string; icon: string }[] = [];
       root.querySelectorAll("*").forEach((el) => {
         const direct = Array.from(el.childNodes)
           .filter((nn) => nn.nodeType === 3)
@@ -267,13 +269,38 @@ export function App() {
         const d = FOLDER_DECOR[direct];
         if (!d || seen.has(direct)) return;
         seen.add(direct);
-        const he = el as HTMLElement;
-        if (he.dataset.nvFolder) return;
-        he.dataset.nvFolder = "1";
-        he.classList.add("nv-folder");
-        he.style.setProperty("--nv-fc", d.color);
-        he.style.setProperty("--nv-fi", `url("${d.icon}")`);
+        titles.push({ el: el as HTMLElement, color: d.color, icon: d.icon });
       });
+      if (!titles.length) return;
+
+      // The folder list container = the ancestor with the most children.
+      let container: Element | null = null;
+      let bestCount = 1;
+      for (let a: Element | null = titles[0].el; a && a !== root; a = a.parentElement) {
+        if (a.children.length > bestCount) {
+          bestCount = a.children.length;
+          container = a;
+        }
+      }
+
+      for (const { el, color, icon } of titles) {
+        if (!el.dataset.nvFolder) {
+          el.dataset.nvFolder = "1";
+          el.classList.add("nv-folder");
+          el.style.setProperty("--nv-fc", color);
+          el.style.setProperty("--nv-fi", `url("${icon}")`);
+        }
+        // Tint this folder's controls by setting Leva's accent vars on its wrapper.
+        if (!container) continue;
+        let wrapper: HTMLElement | null = el;
+        while (wrapper && wrapper.parentElement !== container) wrapper = wrapper.parentElement;
+        if (wrapper && !wrapper.dataset.nvAccent) {
+          wrapper.dataset.nvAccent = "1";
+          wrapper.style.setProperty("--leva-colors-accent1", color);
+          wrapper.style.setProperty("--leva-colors-accent2", color);
+          wrapper.style.setProperty("--leva-colors-accent3", color);
+        }
+      }
     };
     decorate();
     const obs = new MutationObserver(decorate);

@@ -20,13 +20,19 @@ interface Box {
   h: number;
 }
 
-/** A blob's box scaled around its center by `scalePercent` (100 = detected). */
-function scaledBox(b: Blob, scalePercent: number): Box {
+/** Box for a blob: keeps the detected region's aspect, sized by the primary
+ *  Size (boxScale, 0..100 of the canvas short edge), and clamped to
+ *  [Min%, Max%] of that Size. */
+function sizedBox(b: Blob, p: Params, refShort: number): Box {
   const cx = b.x + b.w / 2;
   const cy = b.y + b.h / 2;
-  const f = scalePercent / 100;
-  const w = b.w * f;
-  const h = b.h * f;
+  const sizeRef = (p.boxScale / 100) * refShort;
+  const lo = (Math.min(p.minBlobSize, p.maxBlobSize) / 100) * sizeRef;
+  const hi = (Math.max(p.minBlobSize, p.maxBlobSize) / 100) * sizeRef;
+  const larger = Math.max(b.w, b.h) || 1;
+  const k = Math.min(hi, Math.max(lo, larger)) / larger;
+  const w = b.w * k;
+  const h = b.h * k;
   return { x: cx - w / 2, y: cy - h / 2, w, h };
 }
 
@@ -114,6 +120,7 @@ export class Renderer {
     const motion = updateMotion(this.work, w, h, state, p);
     const blobs = detectBlobs(motion, w, h, state, p);
     const connectors = buildConnectors(blobs, p);
+    const refShort = Math.min(w, h);
 
     // 3. Base layer: the clean source frame.
     out.globalAlpha = 1;
@@ -129,7 +136,7 @@ export class Renderer {
         out.drawImage(this.fx, 0, 0, w, h);
       } else {
         for (const b of blobs) {
-          const sb = scaledBox(b, p.boxScale);
+          const sb = sizedBox(b, p, refShort);
           const db = shapeBounds(p.boxShape, sb);
           const x = Math.max(0, Math.floor(db.x));
           const y = Math.max(0, Math.floor(db.y));
@@ -153,7 +160,7 @@ export class Renderer {
 
     // 5. Vector overlays.
     if (p.connectorStyle !== "none") this.drawConnectors(out, connectors, p);
-    if (p.showBoxes) this.drawBoxes(out, blobs, p);
+    if (p.showBoxes) this.drawBoxes(out, blobs, p, refShort);
 
     return blobs;
   }
@@ -204,12 +211,12 @@ export class Renderer {
     out.globalAlpha = 1;
   }
 
-  private drawBoxes(out: CanvasRenderingContext2D, blobs: Blob[], p: Params) {
+  private drawBoxes(out: CanvasRenderingContext2D, blobs: Blob[], p: Params, refShort: number) {
     out.strokeStyle = p.boxColor;
     out.lineWidth = p.boxWidth;
     out.lineJoin = "miter";
     for (const b of blobs) {
-      const sb = scaledBox(b, p.boxScale);
+      const sb = sizedBox(b, p, refShort);
       out.globalAlpha = b.life;
       if (p.boxShape !== "rect") {
         shapePath(out, p.boxShape, sb);

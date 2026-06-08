@@ -133,9 +133,10 @@ export function detectBlobs(
   state: PipelineState,
   p: Params,
 ): Blob[] {
-  const maxCells = p.maxBlobSize * field.cols * field.rows;
+  // Detection floor/cap are fixed internals; Size/Min/Max are visual (compose).
+  const maxCells = 0.97 * field.cols * field.rows;
   let raw = findComponents(field, p.motionThreshold);
-  raw = raw.filter((b) => b.area >= p.minBlobSize && b.area <= maxCells);
+  raw = raw.filter((b) => b.area >= 2 && b.area <= maxCells);
   raw = mergeBlobs(raw, p.mergeDistance);
   raw.sort((a, b) => b.area - a.area);
   raw = raw.slice(0, Math.max(1, p.maxBlobs));

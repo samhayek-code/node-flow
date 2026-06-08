@@ -42,6 +42,14 @@ export function useNodeVideoControls(callbacks: ControlCallbacks, locked: boolea
   const apply = (patch: Record<string, unknown>) => setRef.current?.(patch);
 
   const [values, set] = useControls(() => ({
+    Canvas: folder(
+      {
+        renderWidth: { ...n(DEFAULT_PARAMS.renderWidth, 64, 3840, 2, "Width", "Canvas width in px. Locked to the source when a video is loaded."), render: () => !locked },
+        renderHeight: { ...n(DEFAULT_PARAMS.renderHeight, 64, 3840, 2, "Height", "Canvas height in px. Locked to the source when a video is loaded."), render: () => !locked },
+        background: color(DEFAULT_PARAMS.background, "Background", "Color behind the video and effects."),
+      },
+      fset("#94a3b8", false),
+    ),
     Global: folder({
       responsiveness: {
         value: 0.5,
@@ -88,19 +96,22 @@ export function useNodeVideoControls(callbacks: ControlCallbacks, locked: boolea
             pixelSize: Math.round(lerp(2, 14, v)),
             boxWidth: Number(lerp(0.5, 4, v).toFixed(1)),
             connectorWidth: Number(lerp(0.5, 3.5, v).toFixed(1)),
-            boxScale: Math.round(lerp(80, 160, v)),
           });
         },
       },
-    }, fset("#3b82f6", false)),
-    Render: folder(
-      {
-        renderWidth: { ...n(DEFAULT_PARAMS.renderWidth, 64, 3840, 2, "Width", "Canvas width in px. Locked to the source when a video is loaded."), render: () => !locked },
-        renderHeight: { ...n(DEFAULT_PARAMS.renderHeight, 64, 3840, 2, "Height", "Canvas height in px. Locked to the source when a video is loaded."), render: () => !locked },
-        background: color(DEFAULT_PARAMS.background, "Background", "Color behind the video and effects."),
+      size: {
+        value: 0.4,
+        min: 0,
+        max: 1,
+        step: 0.01,
+        label: "Size",
+        hint: "Overall blob size.",
+        onChange: (v: number, _p: string, ctx: { initial: boolean }) => {
+          if (ctx.initial) return;
+          apply({ boxScale: Math.round(v * 100) });
+        },
       },
-      fset("#94a3b8"),
-    ),
+    }, fset("#3b82f6", false)),
     Motion: folder(
       {
         motionGrid: n(DEFAULT_PARAMS.motionGrid, 16, 240, 1, "Detail", "Motion-grid columns. Higher = finer detail and more, smaller blobs."),
@@ -112,9 +123,9 @@ export function useNodeVideoControls(callbacks: ControlCallbacks, locked: boolea
     ),
     Blobs: folder(
       {
-        minBlobSize: n(DEFAULT_PARAMS.minBlobSize, 1, 80, 1, "Min size", "Smallest motion cluster to track, in grid cells. Filters out specks."),
-        maxBlobSize: n(DEFAULT_PARAMS.maxBlobSize, 0.02, 1, 0.01, "Max size", "Largest blob allowed, as a share of the frame. 1 = no cap."),
-        boxScale: n(DEFAULT_PARAMS.boxScale, 30, 300, 5, "Size %", "Scale each shape around its center. 100% = the detected size."),
+        boxScale: n(DEFAULT_PARAMS.boxScale, 0, 100, 1, "Size", "Overall blob size, as a % of the canvas short edge."),
+        minBlobSize: n(DEFAULT_PARAMS.minBlobSize, 0, 100, 1, "Min size", "Smallest a blob can be, as a % of Size."),
+        maxBlobSize: n(DEFAULT_PARAMS.maxBlobSize, 0, 100, 1, "Max size", "Largest a blob can be, as a % of Size."),
         maxBlobs: n(DEFAULT_PARAMS.maxBlobs, 1, 40, 1, "Max count", "How many blobs can be tracked at once (largest win)."),
         mergeDistance: n(DEFAULT_PARAMS.mergeDistance, 0, 320, 1, "Merge distance", "Blobs whose centers are closer than this (px) fuse into one."),
         boxPadding: n(DEFAULT_PARAMS.boxPadding, 0, 60, 1, "Padding", "Extra space added around each detected region (px)."),
