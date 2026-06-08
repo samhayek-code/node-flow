@@ -143,6 +143,8 @@ export function detectBlobs(
   const pad = p.boxPadding;
   const matchDist = Math.max(60, renderW * 0.18);
   const smooth = Math.min(0.95, Math.max(0, p.boxSmoothing));
+  const FADE_IN = 0.16; // presence gained per frame while tracked
+  const FADE_OUT = 0.1; // presence lost per frame once a blob disappears
   const prev = state.tracked;
   const used = new Set<number>();
   const result: Blob[] = [];
@@ -180,6 +182,7 @@ export function detectBlobs(
         area: b.area,
         energy: b.energy,
         age: pb.age + 1,
+        life: Math.min(1, pb.life + FADE_IN),
       });
     } else {
       result.push({
@@ -193,8 +196,16 @@ export function detectBlobs(
         area: b.area,
         energy: b.energy,
         age: 0,
+        life: FADE_IN,
       });
     }
+  }
+
+  // Keep unmatched blobs around briefly, fading out, so boxes don't pop.
+  for (let i = 0; i < prev.length; i++) {
+    if (used.has(i)) continue;
+    const life = prev[i].life - FADE_OUT;
+    if (life > 0.03) result.push({ ...prev[i], life, age: prev[i].age + 1 });
   }
 
   state.tracked = result;

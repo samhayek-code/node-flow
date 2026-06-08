@@ -1,10 +1,9 @@
 import { useControls, folder, button } from "leva";
 import { useEffect, useRef } from "react";
-import type { Params, ExportSettings } from "../params";
-import { DEFAULT_PARAMS, DEFAULT_EXPORT } from "../params";
+import type { Params } from "../params";
+import { DEFAULT_PARAMS } from "../params";
 
 export interface ControlCallbacks {
-  onExport: () => void;
   onSavePreset: () => void;
   onLoadPreset: () => void;
 }
@@ -151,16 +150,6 @@ export function useNodeVideoControls(callbacks: ControlCallbacks) {
       invert: bool(DEFAULT_PARAMS.invert, "Invert", "Invert the effect output."),
       effectColor: color(DEFAULT_PARAMS.effectColor, "Color", "Foreground color for mono / ascii / halftone / edges."),
     }, fset("#f472b6", false)),
-    Export: folder(
-      {
-        exportWidth: n(DEFAULT_EXPORT.exportWidth, 480, 2560, 20, "Width", "Output width (px). Height follows the source aspect."),
-        exportFps: sel(DEFAULT_EXPORT.exportFps, [24, 30, 60], "FPS", "Frames per second of the exported file."),
-        exportSeconds: n(DEFAULT_EXPORT.exportSeconds, 1, 60, 1, "Duration (s)", "Clip length. File footage loops if this exceeds its length."),
-        exportBitrateMbps: n(DEFAULT_EXPORT.exportBitrateMbps, 1, 60, 1, "Bitrate (Mbps)", "Higher = better quality and larger files."),
-        "Export .mp4": button(() => cb.current.onExport()),
-      },
-      fset("#34d399"),
-    ),
     Presets: folder(
       {
         "Save preset…": button(() => cb.current.onSavePreset()),
@@ -176,5 +165,5 @@ export function useNodeVideoControls(callbacks: ControlCallbacks) {
   // Ensure it's available before the first effect flush too.
   setRef.current = set as unknown as (patch: Record<string, unknown>) => void;
 
-  return { values: values as unknown as Params & ExportSettings, set };
+  return { values: values as unknown as Params, set };
 }

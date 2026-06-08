@@ -180,9 +180,22 @@ export async function createWebcamSource(): Promise<VideoElementSource> {
   video.srcObject = stream;
   video.muted = true;
   video.playsInline = true;
-  await new Promise<void>((resolve) => {
-    video.onloadeddata = () => resolve();
-  });
+  video.autoplay = true;
+  // Start playback FIRST. For MediaStream sources, frames/metadata only arrive
+  // once the element is playing — awaiting loadeddata before play() deadlocks
+  // (this was the "stuck on Decoding video…" bug).
   await video.play().catch(() => undefined);
+  if (video.videoWidth === 0) {
+    await new Promise<void>((resolve) => {
+      const done = () => {
+        video.removeEventListener("loadedmetadata", done);
+        video.removeEventListener("loadeddata", done);
+        resolve();
+      };
+      video.addEventListener("loadedmetadata", done);
+      video.addEventListener("loadeddata", done);
+      setTimeout(done, 3000); // safety: never hang the UI
+    });
+  }
   return new VideoElementSource(video, "webcam");
 }

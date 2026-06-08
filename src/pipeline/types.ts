@@ -22,8 +22,10 @@ export interface Blob {
   area: number;
   /** Summed motion energy across the blob's cells (0..1 per cell). */
   energy: number;
-  /** Frames this blob has survived; used to fade boxes in/out. */
+  /** Frames this blob has survived. */
   age: number;
+  /** 0..1 presence used to fade boxes/effects in and out smoothly. */
+  life: number;
 }
 
 /** Per-cell, trail-decayed motion field on a coarse grid. */
@@ -43,6 +45,8 @@ export interface Connector {
   by: number;
   /** 0..1 strength used for opacity. */
   strength: number;
+  /** Min presence of the two endpoints, so links fade with their blobs. */
+  life: number;
 }
 
 /** Persistent state threaded across frames. Reset before an export run. */

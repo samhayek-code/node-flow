@@ -444,6 +444,24 @@ button svg,
 }
 
 /* ── Overlays ──────────────────────────────────────────────────────────── */
+@keyframes nv-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes nv-toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 6px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
 .nv-overlay {
   position: absolute;
   inset: 0;
@@ -451,6 +469,7 @@ button svg,
   align-items: center;
   justify-content: center;
   background: rgba(0, 0, 0, 0.6);
+  animation: nv-fade 140ms ease;
 }
 .nv-modal {
   width: 360px;
@@ -462,6 +481,64 @@ button svg,
 .nv-modal-title {
   font-size: 14px;
   margin-bottom: 14px;
+}
+.nv-export-modal {
+  width: 380px;
+}
+.nv-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.nv-field input,
+.nv-field select {
+  width: 120px;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--hair-strong);
+  background: #0a0a0c;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  outline: none;
+}
+.nv-field input:focus,
+.nv-field select:focus {
+  border-color: var(--accent);
+}
+.nv-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+.nv-btn-ghost {
+  height: 40px;
+  padding: 0 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--hair-strong);
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background 130ms ease,
+    color 130ms ease;
+}
+.nv-btn-ghost:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+}
+.nv-btn-ghost:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 .nv-track {
   height: 8px;
@@ -484,6 +561,7 @@ button svg,
   background: rgba(18, 18, 21, 0.96);
   border: 1px solid var(--hair-strong);
   font-size: 14px;
+  animation: nv-toast-in 160ms ease;
 }
 
 /* Color-coded folder icons (injected onto Leva folder titles by text match). */
@@ -515,5 +593,9 @@ button svg,
   }
   .nv-spinner {
     animation-duration: 2.4s;
+  }
+  .nv-overlay,
+  .nv-toast {
+    animation: none;
   }
 }

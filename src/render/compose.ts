@@ -136,6 +136,7 @@ export class Renderer {
           const bw = Math.min(w - x, Math.ceil(db.x + db.w) - x);
           const bh = Math.min(h - y, Math.ceil(db.y + db.h) - y);
           if (bw <= 0 || bh <= 0) continue;
+          out.globalAlpha = b.life;
           if (p.boxShape === "rect") {
             out.drawImage(this.fx, x, y, bw, bh, x, y, bw, bh);
           } else {
@@ -146,6 +147,7 @@ export class Renderer {
             out.restore();
           }
         }
+        out.globalAlpha = 1;
       }
     }
 
@@ -169,10 +171,14 @@ export class Renderer {
 
   private drawConnectors(out: CanvasRenderingContext2D, links: Connector[], p: Params) {
     out.strokeStyle = p.connectorColor;
+    out.fillStyle = p.connectorColor;
     out.lineWidth = p.connectorWidth;
     out.lineCap = "round";
+    const r = p.connectorWidth + 1.2;
     for (const l of links) {
-      out.globalAlpha = 0.2 + 0.8 * Math.max(0, Math.min(1, l.strength));
+      const a = (0.2 + 0.8 * Math.max(0, Math.min(1, l.strength))) * l.life;
+      if (a <= 0.012) continue;
+      out.globalAlpha = a;
       out.beginPath();
       out.moveTo(l.ax, l.ay);
       if (p.connectorStyle === "curved") {
@@ -188,24 +194,12 @@ export class Renderer {
         out.lineTo(l.bx, l.by);
       }
       out.stroke();
-    }
-
-    // Nodes at endpoints.
-    out.globalAlpha = 1;
-    out.fillStyle = p.connectorColor;
-    const seen = new Set<string>();
-    for (const l of links) {
-      for (const [px, py] of [
-        [l.ax, l.ay],
-        [l.bx, l.by],
-      ]) {
-        const k = `${Math.round(px)},${Math.round(py)}`;
-        if (seen.has(k)) continue;
-        seen.add(k);
-        out.beginPath();
-        out.arc(px, py, p.connectorWidth + 1.2, 0, Math.PI * 2);
-        out.fill();
-      }
+      out.beginPath();
+      out.arc(l.ax, l.ay, r, 0, Math.PI * 2);
+      out.fill();
+      out.beginPath();
+      out.arc(l.bx, l.by, r, 0, Math.PI * 2);
+      out.fill();
     }
     out.globalAlpha = 1;
   }
@@ -216,7 +210,7 @@ export class Renderer {
     out.lineJoin = "miter";
     for (const b of blobs) {
       const sb = scaledBox(b, p.boxScale);
-      out.globalAlpha = Math.min(1, b.age / 5);
+      out.globalAlpha = b.life;
       if (p.boxShape !== "rect") {
         shapePath(out, p.boxShape, sb);
         out.stroke();

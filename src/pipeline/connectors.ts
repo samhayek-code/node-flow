@@ -19,6 +19,7 @@ export function buildConnectors(blobs: Blob[], p: Params): Connector[] {
         bx: b.cx,
         by: b.cy,
         strength: 1 - d / maxD,
+        life: Math.min(a.life, b.life),
       });
     }
   }

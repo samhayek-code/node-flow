@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Leva } from "leva";
-import { Shuffle, Download, Sparkles, Film, Webcam, Play, Pause, Workflow, Boxes, Activity, Maximize2, Eye } from "lucide-react";
+import { Shuffle, Download, Sparkles, Film, Webcam, Play, Pause, Workflow, Boxes, Activity, Maximize2, Eye, EyeOff } from "lucide-react";
 import slidersIcon from "lucide-static/icons/sliders-horizontal.svg";
 import monitorIcon from "lucide-static/icons/monitor.svg";
 import activityIcon from "lucide-static/icons/activity.svg";
@@ -18,7 +18,8 @@ import { DEFAULT_PARAMS, DEFAULT_EXPORT } from "./params";
 import type { Params, ExportSettings, EffectType, BoxShape, ConnectorStyle } from "./params";
 import "./app.css";
 
-const PRESET_KEYS = [...Object.keys(DEFAULT_PARAMS), ...Object.keys(DEFAULT_EXPORT)];
+const PARAM_KEYS = Object.keys(DEFAULT_PARAMS).filter((k) => k !== "raw");
+const EXPORT_KEYS = Object.keys(DEFAULT_EXPORT);
 
 const LEVA_THEME = {
   colors: {
@@ -67,24 +68,24 @@ const RAND_CONNECTORS: ConnectorStyle[] = ["curved", "straight", "none"];
 const pickOne = <T,>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
 const randf = (lo: number, hi: number) => lo + Math.random() * (hi - lo);
 
-/** Randomize the aesthetic params (leaves structural/perf and export settings alone). */
-function randomLook(): Partial<Params> {
+/** Randomize aesthetic params plus the Global macros (which cascade to their
+ *  groups — so motion/density/boldness move too). */
+function randomLook(): Record<string, number | string | boolean> {
   return {
+    responsiveness: Number(randf(0.25, 0.9).toFixed(2)),
+    density: Number(randf(0.3, 0.85).toFixed(2)),
+    boldness: Number(randf(0.25, 0.85).toFixed(2)),
     effect: pickOne(RAND_EFFECTS),
     effectScope: Math.random() < 0.7 ? "blobs" : "full",
-    pixelSize: Math.round(randf(2, 12)),
     levels: Math.round(randf(2, 6)),
     mono: Math.random() < 0.3,
     invert: Math.random() < 0.2,
     effectColor: pickOne(PALETTE),
     boxShape: pickOne(RAND_SHAPES),
-    boxScale: Math.round(randf(80, 160)),
     boxColor: pickOne(PALETTE),
     connectorStyle: pickOne(RAND_CONNECTORS),
     connectorCurve: Number(randf(-0.5, 0.5).toFixed(2)),
     connectorColor: pickOne(PALETTE),
-    trailDecay: Number(randf(0.3, 0.9).toFixed(2)),
-    motionThreshold: Number(randf(0.02, 0.12).toFixed(3)),
   };
 }
 
@@ -103,7 +104,7 @@ export function App() {
   const sourceRef = useRef<FrameSource>(new GeneratedSource());
   const rendererRef = useRef(new Renderer());
   const stateRef = useRef(createState());
-  const paramsRef = useRef<Params & ExportSettings>({ ...DEFAULT_PARAMS, ...DEFAULT_EXPORT });
+  const paramsRef = useRef<Params>({ ...DEFAULT_PARAMS });
   const frameRef = useRef(0);
   const exportingRef = useRef(false);
   const rawRef = useRef(false);
@@ -115,6 +116,9 @@ export function App() {
   const [toast, setToast] = useState<string | null>(null);
   const [exportProgress, setExportProgress] = useState<number | null>(null);
   const [raw, setRaw] = useState(false);
+  const [showExport, setShowExport] = useState(false);
+  const [exportCfg, setExportCfg] = useState<ExportSettings>(DEFAULT_EXPORT);
+  const exportCfgRef = useRef<ExportSettings>(DEFAULT_EXPORT);
 
   const flash = useCallback((msg: string) => {
     setToast(msg);
@@ -171,14 +175,24 @@ export function App() {
     setRaw(rawRef.current);
   }, []);
 
+  const updateExport = useCallback((patch: Partial<ExportSettings>) => {
+    setExportCfg((c) => {
+      const next = { ...c, ...patch };
+      exportCfgRef.current = next;
+      return next;
+    });
+  }, []);
+
   const onScrub = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     void sourceRef.current.seekTo(Number(e.target.value));
   }, []);
 
   const savePreset = useCallback(() => {
     const p = paramsRef.current as unknown as Record<string, unknown>;
+    const ex = exportCfgRef.current as unknown as Record<string, unknown>;
     const out: Record<string, unknown> = {};
-    for (const k of PRESET_KEYS) out[k] = p[k];
+    for (const k of PARAM_KEYS) out[k] = p[k];
+    for (const k of EXPORT_KEYS) out[k] = ex[k];
     const blob = new Blob([JSON.stringify(out, null, 2)], { type: "application/json" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
@@ -193,11 +207,10 @@ export function App() {
     exportingRef.current = true;
     try {
       const { exportVideo } = await import("./export/encoder");
-      const p = paramsRef.current;
       await exportVideo({
         source: sourceRef.current,
-        params: p,
-        settings: p,
+        params: paramsRef.current,
+        settings: exportCfgRef.current,
         onProgress: (v) => setExportProgress(v),
       });
       flash("Export complete");
@@ -209,8 +222,12 @@ export function App() {
     }
   }, [exportProgress, flash]);
 
+  const confirmExport = useCallback(() => {
+    setShowExport(false);
+    void runExport();
+  }, [runExport]);
+
   const { values, set } = useNodeVideoControls({
-    onExport: runExport,
     onSavePreset: savePreset,
     onLoadPreset: () => presetInputRef.current?.click(),
   });
@@ -224,29 +241,21 @@ export function App() {
     const root = document.querySelector(".nv-leva-scroll");
     if (!root) return;
     const decorate = () => {
-      const panel = root.firstElementChild;
-      if (!panel) return;
-      Array.from(panel.children).forEach((wrapper) => {
-        const walker = document.createTreeWalker(wrapper, NodeFilter.SHOW_ELEMENT);
-        let node: Node | null = walker.currentNode;
-        while (node) {
-          const direct = Array.from(node.childNodes)
-            .filter((nn) => nn.nodeType === 3)
-            .map((nn) => nn.textContent?.trim() ?? "")
-            .join("");
-          const d = FOLDER_DECOR[direct];
-          if (d) {
-            const el = node as HTMLElement;
-            if (!el.dataset.nvFolder) {
-              el.dataset.nvFolder = "1";
-              el.classList.add("nv-folder");
-              el.style.setProperty("--nv-fc", d.color);
-              el.style.setProperty("--nv-fi", `url("${d.icon}")`);
-            }
-            break;
-          }
-          node = walker.nextNode();
-        }
+      const seen = new Set<string>();
+      root.querySelectorAll("*").forEach((el) => {
+        const direct = Array.from(el.childNodes)
+          .filter((nn) => nn.nodeType === 3)
+          .map((nn) => nn.textContent?.trim() ?? "")
+          .join("");
+        const d = FOLDER_DECOR[direct];
+        if (!d || seen.has(direct)) return;
+        seen.add(direct);
+        const he = el as HTMLElement;
+        if (he.dataset.nvFolder) return;
+        he.dataset.nvFolder = "1";
+        he.classList.add("nv-folder");
+        he.style.setProperty("--nv-fc", d.color);
+        he.style.setProperty("--nv-fi", `url("${d.icon}")`);
       });
     };
     decorate();
@@ -260,14 +269,17 @@ export function App() {
       try {
         const parsed = JSON.parse(await file.text());
         const patch: Record<string, unknown> = {};
-        for (const k of PRESET_KEYS) if (k in parsed) patch[k] = parsed[k];
+        for (const k of PARAM_KEYS) if (k in parsed) patch[k] = parsed[k];
         set(patch as never);
+        const ex: Record<string, unknown> = {};
+        for (const k of EXPORT_KEYS) if (k in parsed) ex[k] = parsed[k];
+        updateExport(ex as Partial<ExportSettings>);
         flash("Preset loaded");
       } catch {
         flash("Invalid preset file");
       }
     },
-    [set, flash],
+    [set, flash, updateExport],
   );
 
   // The render loop.
@@ -351,7 +363,7 @@ export function App() {
         <span className="nv-chip">{hud.source}</span>
         <div className="nv-topright">
           <button className="nv-toggle" data-active={raw || undefined} onClick={toggleRaw} aria-pressed={raw}>
-            <Eye size={14} strokeWidth={2} />
+            {raw ? <EyeOff size={14} strokeWidth={2} /> : <Eye size={14} strokeWidth={2} />}
             Raw
           </button>
           <div className="nv-stats">
@@ -454,13 +466,74 @@ export function App() {
                   : "Generated source — drag in a video to scrub a timeline, or export this pattern."}
               </span>
             )}
-            <button className="nv-export" onClick={runExport} disabled={exportProgress !== null}>
+            <button className="nv-export" onClick={() => setShowExport(true)} disabled={exportProgress !== null}>
               <Download size={16} strokeWidth={2.2} />
               Export .mp4
             </button>
           </footer>
         </div>
       </div>
+
+      {showExport && (
+        <div className="nv-overlay" onClick={() => setShowExport(false)}>
+          <div className="nv-modal nv-export-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="nv-modal-title">Export settings</div>
+            <label className="nv-field">
+              <span>Width</span>
+              <input
+                type="number"
+                min={480}
+                max={2560}
+                step={20}
+                name="exportWidth"
+                value={exportCfg.exportWidth}
+                onChange={(e) => updateExport({ exportWidth: Number(e.target.value) })}
+              />
+            </label>
+            <label className="nv-field">
+              <span>FPS</span>
+              <select name="exportFps" value={exportCfg.exportFps} onChange={(e) => updateExport({ exportFps: Number(e.target.value) })}>
+                <option value={24}>24</option>
+                <option value={30}>30</option>
+                <option value={60}>60</option>
+              </select>
+            </label>
+            <label className="nv-field">
+              <span>Duration (s)</span>
+              <input
+                type="number"
+                min={1}
+                max={60}
+                step={1}
+                name="exportSeconds"
+                value={exportCfg.exportSeconds}
+                onChange={(e) => updateExport({ exportSeconds: Number(e.target.value) })}
+              />
+            </label>
+            <label className="nv-field">
+              <span>Bitrate (Mbps)</span>
+              <input
+                type="number"
+                min={1}
+                max={60}
+                step={1}
+                name="exportBitrateMbps"
+                value={exportCfg.exportBitrateMbps}
+                onChange={(e) => updateExport({ exportBitrateMbps: Number(e.target.value) })}
+              />
+            </label>
+            <div className="nv-modal-actions">
+              <button className="nv-btn-ghost" onClick={() => setShowExport(false)}>
+                Cancel
+              </button>
+              <button className="nv-export" onClick={confirmExport}>
+                <Download size={16} strokeWidth={2.2} />
+                Render .mp4
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {exportProgress !== null && (
         <div className="nv-overlay">
