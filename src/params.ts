@@ -20,6 +20,7 @@ export type BoxShape = "rect" | "circle" | "ellipse" | "diamond";
 export interface Params {
   // Render
   renderWidth: number;
+  renderHeight: number;
   background: string;
 
   // Motion
@@ -63,14 +64,14 @@ export interface Params {
 }
 
 export interface ExportSettings {
-  exportWidth: number;
+  exportScale: number; // fraction of the render dimensions (0.25 / 0.5 / 1 / 2)
   exportFps: number;
   exportSeconds: number;
   exportBitrateMbps: number;
 }
 
 export const DEFAULT_EXPORT: ExportSettings = {
-  exportWidth: 1280,
+  exportScale: 1,
   exportFps: 30,
   exportSeconds: 6,
   exportBitrateMbps: 12,
@@ -78,7 +79,8 @@ export const DEFAULT_EXPORT: ExportSettings = {
 
 export const DEFAULT_PARAMS: Params = {
   renderWidth: 960,
-  background: "#0a0a0b",
+  renderHeight: 540,
+  background: "#000000",
 
   motionGrid: 96,
   motionThreshold: 0.035,

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Leva } from "leva";
-import { Shuffle, Download, Sparkles, Film, Webcam, Play, Pause, Workflow, Boxes, Activity, Maximize2, Eye, EyeOff } from "lucide-react";
+import { Shuffle, Download, Sparkles, Film, Play, Pause, Workflow, Boxes, Activity, Maximize2, Eye, EyeOff, ZoomIn, ZoomOut, Maximize } from "lucide-react";
 import slidersIcon from "lucide-static/icons/sliders-horizontal.svg";
 import monitorIcon from "lucide-static/icons/monitor.svg";
 import activityIcon from "lucide-static/icons/activity.svg";
@@ -12,7 +12,7 @@ import bookmarkIcon from "lucide-static/icons/bookmark.svg";
 import { Renderer } from "./render/compose";
 import { createState } from "./pipeline/types";
 import type { FrameSource } from "./pipeline/source";
-import { GeneratedSource, createFileSource, createWebcamSource } from "./pipeline/source";
+import { GeneratedSource, createFileSource } from "./pipeline/source";
 import { useNodeVideoControls } from "./ui/controls";
 import { DEFAULT_PARAMS, DEFAULT_EXPORT } from "./params";
 import type { Params, ExportSettings, EffectType, BoxShape, ConnectorStyle } from "./params";
@@ -108,6 +108,11 @@ export function App() {
   const frameRef = useRef(0);
   const exportingRef = useRef(false);
   const rawRef = useRef(false);
+  const setLevaRef = useRef<((patch: Record<string, unknown>) => void) | null>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ x: number; y: number; px: number; py: number } | null>(null);
+  const lockedRef = useRef(false);
+  const lockedDimsRef = useRef({ w: 960, h: 540 });
 
   const [hud, setHud] = useState({ source: "generated", w: 0, h: 0, blobs: 0, fps: 0 });
   const [transport, setTransport] = useState({ seekable: false, time: 0, duration: 0, playing: true });
@@ -116,6 +121,10 @@ export function App() {
   const [toast, setToast] = useState<string | null>(null);
   const [exportProgress, setExportProgress] = useState<number | null>(null);
   const [raw, setRaw] = useState(false);
+  const [locked, setLocked] = useState(false);
+  const [lockedDims, setLockedDims] = useState({ w: 960, h: 540 });
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
   const [showExport, setShowExport] = useState(false);
   const [exportCfg, setExportCfg] = useState<ExportSettings>(DEFAULT_EXPORT);
   const exportCfgRef = useRef<ExportSettings>(DEFAULT_EXPORT);
@@ -134,6 +143,8 @@ export function App() {
 
   const useGenerated = useCallback(() => {
     swapSource(new GeneratedSource());
+    lockedRef.current = false;
+    setLocked(false);
     flash("Source: generated");
   }, [swapSource, flash]);
 
@@ -143,6 +154,17 @@ export function App() {
       try {
         const src = await createFileSource(file);
         swapSource(src);
+        // Lock render dimensions to the video (fit to a sane preview size).
+        const vw = src.video.videoWidth || 1280;
+        const vh = src.video.videoHeight || 720;
+        const fit = Math.min(1, 1280 / Math.max(vw, vh));
+        const rw = Math.max(2, Math.round((vw * fit) / 2) * 2);
+        const rh = Math.max(2, Math.round((vh * fit) / 2) * 2);
+        lockedDimsRef.current = { w: rw, h: rh };
+        lockedRef.current = true;
+        setLockedDims({ w: rw, h: rh });
+        setLevaRef.current?.({ renderWidth: rw, renderHeight: rh });
+        setLocked(true);
         flash(`Loaded ${file.name}`);
       } catch {
         flash("Could not load that video");
@@ -152,18 +174,6 @@ export function App() {
     },
     [swapSource, flash],
   );
-
-  const useWebcam = useCallback(async () => {
-    setLoading(true);
-    try {
-      swapSource(await createWebcamSource());
-      flash("Source: webcam");
-    } catch {
-      flash("Webcam unavailable or denied");
-    } finally {
-      setLoading(false);
-    }
-  }, [swapSource, flash]);
 
   const togglePlay = useCallback(() => {
     const s = sourceRef.current;
@@ -207,9 +217,12 @@ export function App() {
     exportingRef.current = true;
     try {
       const { exportVideo } = await import("./export/encoder");
+      const d = lockedRef.current
+        ? lockedDimsRef.current
+        : { w: paramsRef.current.renderWidth, h: paramsRef.current.renderHeight };
       await exportVideo({
         source: sourceRef.current,
-        params: paramsRef.current,
+        params: { ...paramsRef.current, renderWidth: d.w, renderHeight: d.h },
         settings: exportCfgRef.current,
         onProgress: (v) => setExportProgress(v),
       });
@@ -227,10 +240,14 @@ export function App() {
     void runExport();
   }, [runExport]);
 
-  const { values, set } = useNodeVideoControls({
-    onSavePreset: savePreset,
-    onLoadPreset: () => presetInputRef.current?.click(),
-  });
+  const { values, set } = useNodeVideoControls(
+    {
+      onSavePreset: savePreset,
+      onLoadPreset: () => presetInputRef.current?.click(),
+    },
+    locked,
+  );
+  setLevaRef.current = set;
 
   useEffect(() => {
     paramsRef.current = values;
@@ -299,8 +316,8 @@ export function App() {
       const base = paramsRef.current;
       const p = rawRef.current ? { ...base, raw: true } : base;
       const src = sourceRef.current;
-      const w = Math.max(16, Math.round(p.renderWidth));
-      const h = Math.max(16, Math.round(w / (src.aspect || 16 / 9)));
+      const w = lockedRef.current ? lockedDimsRef.current.w : Math.max(16, Math.round(p.renderWidth));
+      const h = lockedRef.current ? lockedDimsRef.current.h : Math.max(16, Math.round(p.renderHeight));
       if (canvas.width !== w || canvas.height !== h) {
         canvas.width = w;
         canvas.height = h;
@@ -330,6 +347,31 @@ export function App() {
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
   }, []);
+
+  // Scroll-to-zoom over the stage (native listener so we can preventDefault).
+  useEffect(() => {
+    const el = stageRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      setZoom((z) => Math.min(8, Math.max(0.15, z * (e.deltaY < 0 ? 1.12 : 0.89))));
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
+
+  const onStageDown = (e: React.MouseEvent) => {
+    if (zoom <= 1.01) return;
+    dragRef.current = { x: e.clientX, y: e.clientY, px: pan.x, py: pan.y };
+  };
+  const onStageMove = (e: React.MouseEvent) => {
+    const d = dragRef.current;
+    if (!d) return;
+    setPan({ x: d.px + (e.clientX - d.x), y: d.py + (e.clientY - d.y) });
+  };
+  const onStageUp = () => {
+    dragRef.current = null;
+  };
 
   const onDrop = useCallback(
     (e: React.DragEvent) => {
@@ -396,10 +438,6 @@ export function App() {
                 <Film size={15} strokeWidth={2} />
                 File
               </button>
-              <button className="nv-src nv-src-cam" onClick={useWebcam}>
-                <Webcam size={15} strokeWidth={2} />
-                Webcam
-              </button>
             </div>
           </div>
 
@@ -422,8 +460,20 @@ export function App() {
         </aside>
 
         <div className="nv-main">
-          <div className="nv-stage">
-            <canvas ref={canvasRef} className="nv-canvas" />
+          <div
+            className="nv-stage"
+            ref={stageRef}
+            onMouseDown={onStageDown}
+            onMouseMove={onStageMove}
+            onMouseUp={onStageUp}
+            onMouseLeave={onStageUp}
+            style={{ cursor: zoom > 1.01 ? (dragRef.current ? "grabbing" : "grab") : "default" }}
+          >
+            <canvas
+              ref={canvasRef}
+              className="nv-canvas"
+              style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}
+            />
             {dragging && <div className="nv-drophint">Drop video to use as source</div>}
             {loading && (
               <div className="nv-loading">
@@ -431,6 +481,25 @@ export function App() {
                 <div>Decoding video…</div>
               </div>
             )}
+            <div className="nv-zoom">
+              <button className="nv-zoom-btn" onClick={() => setZoom((z) => Math.max(0.15, z * 0.9))} aria-label="Zoom out">
+                <ZoomOut size={14} strokeWidth={2} />
+              </button>
+              <span className="nv-zoom-val">{Math.round(zoom * 100)}%</span>
+              <button className="nv-zoom-btn" onClick={() => setZoom((z) => Math.min(8, z * 1.1))} aria-label="Zoom in">
+                <ZoomIn size={14} strokeWidth={2} />
+              </button>
+              <button
+                className="nv-zoom-btn"
+                onClick={() => {
+                  setZoom(1);
+                  setPan({ x: 0, y: 0 });
+                }}
+                aria-label="Fit to screen"
+              >
+                <Maximize size={14} strokeWidth={2} />
+              </button>
+            </div>
           </div>
 
           <footer className="nv-transport">
@@ -461,9 +530,7 @@ export function App() {
               </>
             ) : (
               <span className="nv-hint">
-                {hud.source === "webcam"
-                  ? "Webcam is live — no timeline to scrub."
-                  : "Generated source — drag in a video to scrub a timeline, or export this pattern."}
+                Generated source — drag in a video to scrub a timeline, or export this pattern.
               </span>
             )}
             <button className="nv-export" onClick={() => setShowExport(true)} disabled={exportProgress !== null}>
@@ -478,18 +545,30 @@ export function App() {
         <div className="nv-overlay" onClick={() => setShowExport(false)}>
           <div className="nv-modal nv-export-modal" onClick={(e) => e.stopPropagation()}>
             <div className="nv-modal-title">Export settings</div>
-            <label className="nv-field">
-              <span>Width</span>
-              <input
-                type="number"
-                min={480}
-                max={2560}
-                step={20}
-                name="exportWidth"
-                value={exportCfg.exportWidth}
-                onChange={(e) => updateExport({ exportWidth: Number(e.target.value) })}
-              />
-            </label>
+            <div className="nv-field nv-field-col">
+              <span>Resolution</span>
+              <div className="nv-scale-grid">
+                {[0.25, 0.5, 1, 2].map((s) => {
+                  const bw = locked ? lockedDims.w : values.renderWidth;
+                  const bh = locked ? lockedDims.h : values.renderHeight;
+                  const w = Math.round((bw * s) / 2) * 2;
+                  const h = Math.round((bh * s) / 2) * 2;
+                  return (
+                    <button
+                      key={s}
+                      className="nv-scale-btn"
+                      data-active={exportCfg.exportScale === s || undefined}
+                      onClick={() => updateExport({ exportScale: s })}
+                    >
+                      <b>{Math.round(s * 100)}%</b>
+                      <span>
+                        {w}×{h}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
             <label className="nv-field">
               <span>FPS</span>
               <select name="exportFps" value={exportCfg.exportFps} onChange={(e) => updateExport({ exportFps: Number(e.target.value) })}>
@@ -522,6 +601,9 @@ export function App() {
                 onChange={(e) => updateExport({ exportBitrateMbps: Number(e.target.value) })}
               />
             </label>
+            <div className="nv-filesize">
+              ≈ {((exportCfg.exportBitrateMbps * exportCfg.exportSeconds) / 8).toFixed(1)} MB estimated
+            </div>
             <div className="nv-modal-actions">
               <button className="nv-btn-ghost" onClick={() => setShowExport(false)}>
                 Cancel

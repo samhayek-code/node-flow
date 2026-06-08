@@ -40,17 +40,8 @@ export class GeneratedSource implements FrameSource {
 
   draw(ctx: CanvasRenderingContext2D, w: number, h: number, f: number): void {
     const t = f / 60;
-    ctx.fillStyle = "#0b0f1a";
+    ctx.fillStyle = "#000000";
     ctx.fillRect(0, 0, w, h);
-
-    // Slow drifting backdrop band for ambient low-frequency motion.
-    const bandY = h * (0.5 + 0.18 * Math.sin(t * 0.7));
-    const grad = ctx.createLinearGradient(0, bandY - h * 0.2, 0, bandY + h * 0.2);
-    grad.addColorStop(0, "rgba(20,40,80,0)");
-    grad.addColorStop(0.5, "rgba(40,90,160,0.55)");
-    grad.addColorStop(1, "rgba(20,40,80,0)");
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, bandY - h * 0.2, w, h * 0.4);
 
     const shapes = [
       { hue: 12, sx: 0.42, sy: 0.9, r: 0.07, px: 0.9, py: 1.3 },
@@ -172,30 +163,4 @@ export async function createFileSource(file: File): Promise<VideoElementSource> 
   });
   await video.play().catch(() => undefined);
   return new VideoElementSource(video, "file", url);
-}
-
-export async function createWebcamSource(): Promise<VideoElementSource> {
-  const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-  const video = document.createElement("video");
-  video.srcObject = stream;
-  video.muted = true;
-  video.playsInline = true;
-  video.autoplay = true;
-  // Start playback FIRST. For MediaStream sources, frames/metadata only arrive
-  // once the element is playing — awaiting loadeddata before play() deadlocks
-  // (this was the "stuck on Decoding video…" bug).
-  await video.play().catch(() => undefined);
-  if (video.videoWidth === 0) {
-    await new Promise<void>((resolve) => {
-      const done = () => {
-        video.removeEventListener("loadedmetadata", done);
-        video.removeEventListener("loadeddata", done);
-        resolve();
-      };
-      video.addEventListener("loadedmetadata", done);
-      video.addEventListener("loadeddata", done);
-      setTimeout(done, 3000); // safety: never hang the UI
-    });
-  }
-  return new VideoElementSource(video, "webcam");
 }

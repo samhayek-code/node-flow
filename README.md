@@ -7,7 +7,7 @@ frame-perfect mp4.
 
 An extensible Canvas2D pipeline you can hack on.
 
-**Live:** https://node-flow-roan.vercel.app · **Source:** https://github.com/samhayek-code/node-flow
+**Live:** https://node-flow-editor.vercel.app · **Source:** https://github.com/samhayek-code/node-flow
 
 ## Run
 
@@ -22,11 +22,10 @@ Use **Chrome or Edge** — export relies on WebCodecs.
 ## Use it
 
 1. Pick a source: drag a video onto the canvas, or use the **Source** buttons
-   (generated test pattern, open a file, webcam).
-2. Tune the panel on the right.
+   (generated test pattern, or open a file).
+2. Tune the panel on the left. Scroll over the canvas to zoom; drag to pan.
 3. For file sources, use the bottom transport bar to play/pause and scrub.
-4. **Export .mp4** (transport bar or the Export folder) renders a frame-perfect
-   clip and downloads it.
+4. **Export .mp4** opens a dialog — pick a resolution (% of the canvas) and render.
 
 ## How it works
 
@@ -50,7 +49,7 @@ params scale up so the look is preserved), and encodes via WebCodecs +
 
 ## Controls
 
-- **Render** — internal resolution, background color.
+- **Render** — canvas width × height (locked to the source when a video is loaded), background color.
 - **Motion** — grid density, threshold (how much change counts as motion),
   trail decay (how long motion lingers), pre-blur.
 - **Blobs** — min size, **max size** (cap as a share of the frame), max count,
@@ -61,7 +60,8 @@ params scale up so the look is preserved), and encodes via WebCodecs +
 - **Effect** — dither / halftone / ascii / pixelate / threshold / scanlines /
   edges / chromatic / solarize / none, scope (blobs-only vs full frame), pixel
   size, levels, mono, invert, color.
-- **Export** — resolution, fps, duration, bitrate.
+- **Export** (button → dialog) — resolution as a % of the canvas (shows the
+  resulting pixel dimensions + a filesize estimate), fps, duration, bitrate.
 - **Presets** — save the current settings to JSON, load them back.
 
 ## Add your own effect
@@ -105,8 +105,6 @@ src/
 - **Export needs WebCodecs** (Chrome/Edge). The rest works anywhere.
 - **File export** seeks the clip frame-by-frame and loops it if the export
   duration exceeds the clip length.
-- **Webcam export** is best-effort — live streams can't be seeked, so it
-  captures the current frame rather than a deterministic timeline.
 - Rendering is CPU (Canvas2D) by design, for hackable effects. Offline export
   removes the speed pressure; if a future effect needs GPU, it can swap to a
   WebGL2 substrate behind the same place in `compose.ts`.

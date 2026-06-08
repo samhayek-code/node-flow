@@ -58,9 +58,9 @@ export async function renderToMp4(opts: ExportOptions): Promise<ArrayBuffer> {
     throw new Error("WebCodecs not available — use Chrome/Edge");
   }
 
-  const aspect = source.aspect || 16 / 9;
-  let width = Math.round(settings.exportWidth);
-  let height = Math.round(width / aspect);
+  // Export at the render dimensions scaled by the chosen factor.
+  let width = Math.round(params.renderWidth * settings.exportScale);
+  let height = Math.round(params.renderHeight * settings.exportScale);
   width -= width % 2; // H.264 requires even dimensions
   height -= height % 2;
 

@@ -33,7 +33,7 @@ const fset = (color: string, collapsed = true) => ({ color, collapsed });
 
 /** Wires the full parameter set into a grouped, labelled Leva panel and returns
  *  the live values plus a `set` function (used by preset loading + macros). */
-export function useNodeVideoControls(callbacks: ControlCallbacks) {
+export function useNodeVideoControls(callbacks: ControlCallbacks, locked: boolean) {
   const cb = useRef(callbacks);
   cb.current = callbacks;
 
@@ -95,7 +95,8 @@ export function useNodeVideoControls(callbacks: ControlCallbacks) {
     }, fset("#3b82f6", false)),
     Render: folder(
       {
-        renderWidth: n(DEFAULT_PARAMS.renderWidth, 320, 1920, 20, "Preview width", "Internal render resolution in px. Lower = faster preview; export uses its own size."),
+        renderWidth: { ...n(DEFAULT_PARAMS.renderWidth, 64, 3840, 2, "Width", "Canvas width in px. Locked to the source when a video is loaded."), render: () => !locked },
+        renderHeight: { ...n(DEFAULT_PARAMS.renderHeight, 64, 3840, 2, "Height", "Canvas height in px. Locked to the source when a video is loaded."), render: () => !locked },
         background: color(DEFAULT_PARAMS.background, "Background", "Color behind the video and effects."),
       },
       fset("#94a3b8"),
@@ -157,7 +158,7 @@ export function useNodeVideoControls(callbacks: ControlCallbacks) {
       },
       fset("#9ca3af"),
     ),
-  }));
+  }), [locked]);
 
   useEffect(() => {
     setRef.current = set as unknown as (patch: Record<string, unknown>) => void;
