@@ -30,7 +30,7 @@ const color = (value: string, label: string, hint: string) => ({ value, label, h
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const r2 = (x: number) => Number(x.toFixed(2));
 
-const COLLAPSED = { collapsed: true };
+const fset = (color: string, collapsed = true) => ({ color, collapsed });
 
 /** Wires the full parameter set into a grouped, labelled Leva panel and returns
  *  the live values plus a `set` function (used by preset loading + macros). */
@@ -93,13 +93,13 @@ export function useNodeVideoControls(callbacks: ControlCallbacks) {
           });
         },
       },
-    }),
+    }, fset("#3b82f6", false)),
     Render: folder(
       {
         renderWidth: n(DEFAULT_PARAMS.renderWidth, 320, 1920, 20, "Preview width", "Internal render resolution in px. Lower = faster preview; export uses its own size."),
         background: color(DEFAULT_PARAMS.background, "Background", "Color behind the video and effects."),
       },
-      COLLAPSED,
+      fset("#94a3b8"),
     ),
     Motion: folder(
       {
@@ -108,7 +108,7 @@ export function useNodeVideoControls(callbacks: ControlCallbacks) {
         trailDecay: n(DEFAULT_PARAMS.trailDecay, 0, 0.99, 0.01, "Trail length", "How long motion lingers after it stops. Higher = longer fading trails."),
         preBlur: n(DEFAULT_PARAMS.preBlur, 0, 6, 0.5, "Pre-blur", "Blur before detection to cut noise and video grain."),
       },
-      COLLAPSED,
+      fset("#2dd4bf"),
     ),
     Blobs: folder(
       {
@@ -125,7 +125,7 @@ export function useNodeVideoControls(callbacks: ControlCallbacks) {
         boxColor: color(DEFAULT_PARAMS.boxColor, "Outline color", "Stroke color of the outlines."),
         boxWidth: n(DEFAULT_PARAMS.boxWidth, 0.5, 6, 0.5, "Outline width", "Outline stroke width (px)."),
       },
-      COLLAPSED,
+      fset("#fbbf24"),
     ),
     Connectors: folder(
       {
@@ -135,7 +135,7 @@ export function useNodeVideoControls(callbacks: ControlCallbacks) {
         connectorColor: color(DEFAULT_PARAMS.connectorColor, "Color", "Line and node color."),
         connectorWidth: n(DEFAULT_PARAMS.connectorWidth, 0.5, 6, 0.5, "Width", "Line thickness (px)."),
       },
-      COLLAPSED,
+      fset("#a78bfa"),
     ),
     Effect: folder({
       effect: sel(
@@ -150,7 +150,7 @@ export function useNodeVideoControls(callbacks: ControlCallbacks) {
       mono: bool(DEFAULT_PARAMS.mono, "Monochrome", "Collapse the effect to a single color."),
       invert: bool(DEFAULT_PARAMS.invert, "Invert", "Invert the effect output."),
       effectColor: color(DEFAULT_PARAMS.effectColor, "Color", "Foreground color for mono / ascii / halftone / edges."),
-    }),
+    }, fset("#f472b6", false)),
     Export: folder(
       {
         exportWidth: n(DEFAULT_EXPORT.exportWidth, 480, 2560, 20, "Width", "Output width (px). Height follows the source aspect."),
@@ -159,14 +159,14 @@ export function useNodeVideoControls(callbacks: ControlCallbacks) {
         exportBitrateMbps: n(DEFAULT_EXPORT.exportBitrateMbps, 1, 60, 1, "Bitrate (Mbps)", "Higher = better quality and larger files."),
         "Export .mp4": button(() => cb.current.onExport()),
       },
-      COLLAPSED,
+      fset("#34d399"),
     ),
     Presets: folder(
       {
         "Save preset…": button(() => cb.current.onSavePreset()),
         "Load preset…": button(() => cb.current.onLoadPreset()),
       },
-      COLLAPSED,
+      fset("#9ca3af"),
     ),
   }));
 

@@ -103,6 +103,13 @@ export class Renderer {
     this.workCtx.fillRect(0, 0, w, h);
     source.draw(this.workCtx, w, h, frameIndex);
 
+    // Raw bypass: show the untouched source, skip the whole pipeline.
+    if (p.raw) {
+      out.globalAlpha = 1;
+      out.drawImage(this.work, 0, 0, w, h);
+      return [];
+    }
+
     // 2. Motion + blobs + connectors.
     const motion = updateMotion(this.work, w, h, state, p);
     const blobs = detectBlobs(motion, w, h, state, p);

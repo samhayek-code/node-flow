@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Leva } from "leva";
-import { Shuffle, Download, Sparkles, Film, Webcam, Play, Pause, Workflow, Boxes, Activity, Maximize2 } from "lucide-react";
+import { Shuffle, Download, Sparkles, Film, Webcam, Play, Pause, Workflow, Boxes, Activity, Maximize2, Eye } from "lucide-react";
+import slidersIcon from "lucide-static/icons/sliders-horizontal.svg";
+import monitorIcon from "lucide-static/icons/monitor.svg";
+import activityIcon from "lucide-static/icons/activity.svg";
+import shapesIcon from "lucide-static/icons/shapes.svg";
+import splineIcon from "lucide-static/icons/spline.svg";
+import wandIcon from "lucide-static/icons/wand-2.svg";
+import filmIcon from "lucide-static/icons/film.svg";
+import bookmarkIcon from "lucide-static/icons/bookmark.svg";
 import { Renderer } from "./render/compose";
 import { createState } from "./pipeline/types";
 import type { FrameSource } from "./pipeline/source";
@@ -37,8 +45,20 @@ const LEVA_THEME = {
     mono: "Geist Mono Variable, ui-monospace, monospace",
   },
   space: { rowGap: "8px", md: "10px" },
-  radii: { xs: "4px", sm: "6px", lg: "10px" },
+  radii: { xs: "2px", sm: "2px", lg: "2px" },
 } as const;
+
+/** Color + lucide icon per Leva folder, applied to the title by text match. */
+const FOLDER_DECOR: Record<string, { color: string; icon: string }> = {
+  Global: { color: "#3b82f6", icon: slidersIcon },
+  Render: { color: "#94a3b8", icon: monitorIcon },
+  Motion: { color: "#2dd4bf", icon: activityIcon },
+  Blobs: { color: "#fbbf24", icon: shapesIcon },
+  Connectors: { color: "#a78bfa", icon: splineIcon },
+  Effect: { color: "#f472b6", icon: wandIcon },
+  Export: { color: "#34d399", icon: filmIcon },
+  Presets: { color: "#9ca3af", icon: bookmarkIcon },
+};
 
 const PALETTE = ["#ffffff", "#6ea8fe", "#ff6b6b", "#ffd166", "#06d6a0", "#f72585", "#4cc9f0", "#80ffdb", "#ff9e00", "#b5179e"];
 const RAND_EFFECTS: EffectType[] = ["dither", "halftone", "ascii", "pixelate", "threshold", "scanlines", "edges", "chromatic", "solarize"];
@@ -86,6 +106,7 @@ export function App() {
   const paramsRef = useRef<Params & ExportSettings>({ ...DEFAULT_PARAMS, ...DEFAULT_EXPORT });
   const frameRef = useRef(0);
   const exportingRef = useRef(false);
+  const rawRef = useRef(false);
 
   const [hud, setHud] = useState({ source: "generated", w: 0, h: 0, blobs: 0, fps: 0 });
   const [transport, setTransport] = useState({ seekable: false, time: 0, duration: 0, playing: true });
@@ -93,6 +114,7 @@ export function App() {
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [exportProgress, setExportProgress] = useState<number | null>(null);
+  const [raw, setRaw] = useState(false);
 
   const flash = useCallback((msg: string) => {
     setToast(msg);
@@ -144,6 +166,11 @@ export function App() {
     s.setPlaying(!s.playing);
   }, []);
 
+  const toggleRaw = useCallback(() => {
+    rawRef.current = !rawRef.current;
+    setRaw(rawRef.current);
+  }, []);
+
   const onScrub = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     void sourceRef.current.seekTo(Number(e.target.value));
   }, []);
@@ -192,6 +219,42 @@ export function App() {
     paramsRef.current = values;
   }, [values]);
 
+  // Decorate Leva folder titles with a color + lucide icon, matched by text.
+  useEffect(() => {
+    const root = document.querySelector(".nv-leva-scroll");
+    if (!root) return;
+    const decorate = () => {
+      const panel = root.firstElementChild;
+      if (!panel) return;
+      Array.from(panel.children).forEach((wrapper) => {
+        const walker = document.createTreeWalker(wrapper, NodeFilter.SHOW_ELEMENT);
+        let node: Node | null = walker.currentNode;
+        while (node) {
+          const direct = Array.from(node.childNodes)
+            .filter((nn) => nn.nodeType === 3)
+            .map((nn) => nn.textContent?.trim() ?? "")
+            .join("");
+          const d = FOLDER_DECOR[direct];
+          if (d) {
+            const el = node as HTMLElement;
+            if (!el.dataset.nvFolder) {
+              el.dataset.nvFolder = "1";
+              el.classList.add("nv-folder");
+              el.style.setProperty("--nv-fc", d.color);
+              el.style.setProperty("--nv-fi", `url("${d.icon}")`);
+            }
+            break;
+          }
+          node = walker.nextNode();
+        }
+      });
+    };
+    decorate();
+    const obs = new MutationObserver(decorate);
+    obs.observe(root, { childList: true, subtree: true });
+    return () => obs.disconnect();
+  }, []);
+
   const loadPresetFile = useCallback(
     async (file: File) => {
       try {
@@ -221,7 +284,8 @@ export function App() {
         raf = requestAnimationFrame(loop);
         return;
       }
-      const p = paramsRef.current;
+      const base = paramsRef.current;
+      const p = rawRef.current ? { ...base, raw: true } : base;
       const src = sourceRef.current;
       const w = Math.max(16, Math.round(p.renderWidth));
       const h = Math.max(16, Math.round(w / (src.aspect || 16 / 9)));
@@ -285,19 +349,25 @@ export function App() {
           node<b>·</b>flow
         </span>
         <span className="nv-chip">{hud.source}</span>
-        <div className="nv-stats">
-          <span className="nv-stat">
-            <Maximize2 size={13} strokeWidth={2} />
-            {hud.w}×{hud.h}
-          </span>
-          <span className="nv-stat">
-            <Boxes size={13} strokeWidth={2} />
-            {hud.blobs}
-          </span>
-          <span className="nv-stat">
-            <Activity size={13} strokeWidth={2} />
-            {hud.fps} fps
-          </span>
+        <div className="nv-topright">
+          <button className="nv-toggle" data-active={raw || undefined} onClick={toggleRaw} aria-pressed={raw}>
+            <Eye size={14} strokeWidth={2} />
+            Raw
+          </button>
+          <div className="nv-stats">
+            <span className="nv-stat">
+              <Maximize2 size={13} strokeWidth={2} />
+              {hud.w}×{hud.h}
+            </span>
+            <span className="nv-stat">
+              <Boxes size={13} strokeWidth={2} />
+              {hud.blobs}
+            </span>
+            <span className="nv-stat">
+              <Activity size={13} strokeWidth={2} />
+              {hud.fps} fps
+            </span>
+          </div>
         </div>
       </header>
 
