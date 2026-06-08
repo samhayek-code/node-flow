@@ -692,3 +692,30 @@ button svg,
     animation: none;
   }
 }
+
+/* Error boundary — full-viewport recovery surface (no app behind it). */
+.nv-error-overlay {
+  position: fixed;
+  background: var(--bg);
+}
+.nv-error-msg {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+  margin: 0 0 12px;
+  text-wrap: pretty;
+}
+.nv-error-detail {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--accent-soft);
+  background: #0a0a0c;
+  border: 1px solid var(--hair);
+  border-radius: var(--radius);
+  padding: 10px;
+  margin: 0;
+  max-height: 120px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

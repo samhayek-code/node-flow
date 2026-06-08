@@ -111,6 +111,7 @@ export function App() {
   const stateRef = useRef(createState());
   const frameRef = useRef(0);
   const exportingRef = useRef(false);
+  const renderErrRef = useRef(false);
   const stageRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ x: number; y: number; px: number; py: number } | null>(null);
   const lockedRef = useRef(false);
@@ -383,45 +384,59 @@ export function App() {
         raf = requestAnimationFrame(loop);
         return;
       }
-      const proj = projRef.current;
-      const view = viewRef.current;
-      const base = proj.params;
-      const src = sourceRef.current;
-      const w = lockedRef.current ? lockedDimsRef.current.w : Math.max(16, Math.round(base.renderWidth));
-      const h = lockedRef.current ? lockedDimsRef.current.h : Math.max(16, Math.round(base.renderHeight));
-      if (canvas.width !== w || canvas.height !== h) {
-        canvas.width = w;
-        canvas.height = h;
-      }
+      try {
+        const proj = projRef.current;
+        const view = viewRef.current;
+        const base = proj.params;
+        const src = sourceRef.current;
+        const w = lockedRef.current ? lockedDimsRef.current.w : Math.max(16, Math.round(base.renderWidth));
+        const h = lockedRef.current ? lockedDimsRef.current.h : Math.max(16, Math.round(base.renderHeight));
+        if (canvas.width !== w || canvas.height !== h) {
+          canvas.width = w;
+          canvas.height = h;
+        }
 
-      // The single funnel: resolve modulators at clip time, scale (1 in preview),
-      // inject raw — identical to the export path.
-      const clipTime = src.seekable ? src.currentTime : frameRef.current / 60;
-      const p = resolveFrame(
-        base,
-        proj.modulators,
-        proj.modSources,
-        { frame: frameRef.current, clipTime, fps: 60, scale: 1, raw: view.raw },
-        sigRef.current,
-      );
-      const blobs = rendererRef.current.render(ctx, w, h, src, frameRef.current, p, stateRef.current);
-      frameRef.current++;
-      frames++;
+        // The single funnel: resolve modulators at clip time, scale (1 in preview),
+        // inject raw — identical to the export path.
+        const clipTime = src.seekable ? src.currentTime : frameRef.current / 60;
+        const p = resolveFrame(
+          base,
+          proj.modulators,
+          proj.modSources,
+          { frame: frameRef.current, clipTime, fps: 60, scale: 1, raw: view.raw },
+          sigRef.current,
+        );
+        const blobs = rendererRef.current.render(ctx, w, h, src, frameRef.current, p, stateRef.current);
+        frameRef.current++;
+        frames++;
 
-      const now = performance.now();
-      if (now - lastHud >= 500) {
-        setHud({ source: src.kind, w, h, blobs: blobs.length, fps: Math.round((frames * 1000) / (now - lastHud)) });
-        frames = 0;
-        lastHud = now;
-      }
-      if (now - lastTransport >= 100) {
-        lastTransport = now;
-        setTransport({
-          seekable: src.seekable,
-          time: src.currentTime,
-          duration: src.duration ?? 0,
-          playing: src.playing,
-        });
+        const now = performance.now();
+        if (now - lastHud >= 500) {
+          setHud({ source: src.kind, w, h, blobs: blobs.length, fps: Math.round((frames * 1000) / (now - lastHud)) });
+          frames = 0;
+          lastHud = now;
+        }
+        if (now - lastTransport >= 100) {
+          lastTransport = now;
+          setTransport({
+            seekable: src.seekable,
+            time: src.currentTime,
+            duration: src.duration ?? 0,
+            playing: src.playing,
+          });
+        }
+        if (renderErrRef.current) {
+          renderErrRef.current = false;
+          setToast(null);
+        }
+      } catch (err) {
+        // Keep the loop alive: a transient bad param/frame must not freeze the
+        // preview. Surface once, then clear automatically on the next good frame.
+        if (!renderErrRef.current) {
+          renderErrRef.current = true;
+          console.error("[node-flow] render error:", err);
+          setToast("Render error — adjust params or reload (see console)");
+        }
       }
       raf = requestAnimationFrame(loop);
     };
