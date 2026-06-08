@@ -58,9 +58,6 @@ export interface Params {
   mono: boolean; // collapse to luminance
   invert: boolean;
   effectColor: string; // foreground for mono/ascii/halftone
-
-  // View
-  raw: boolean; // bypass the pipeline and show the raw source (UI toggle, not a Leva control)
 }
 
 export interface ExportSettings {
@@ -113,6 +110,4 @@ export const DEFAULT_PARAMS: Params = {
   mono: false,
   invert: false,
   effectColor: "#ffffff",
-
-  raw: false,
 };

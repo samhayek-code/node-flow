@@ -1,13 +1,22 @@
 import { Muxer, ArrayBufferTarget } from "mp4-muxer";
-import { Renderer } from "../render/compose";
+import { Canvas2DRenderer } from "../render/compose";
+import { resolveFrame } from "../render/resolve";
 import { createState } from "../pipeline/types";
+import { createSignalBank } from "../audio/signalBank";
 import type { FrameSource } from "../pipeline/source";
 import type { Params, ExportSettings } from "../params";
+import type { Modulator, ModSource } from "../store/types";
+import type { SignalBank } from "../audio/signalBank";
 
 export interface ExportOptions {
   source: FrameSource;
+  /** Base params; renderWidth/renderHeight are the export source (scale-1) dims. */
   params: Params;
   settings: ExportSettings;
+  /** Modulation routes (P1-A). Empty/omitted = the zero-cost identity path. */
+  modulators?: Modulator[];
+  modSources?: ModSource[];
+  signalBank?: SignalBank;
   onProgress: (value: number) => void;
 }
 
@@ -32,28 +41,12 @@ async function pickCodec(width: number, height: number, bitrate: number, framera
   throw new Error("No supported H.264 encoder configuration");
 }
 
-/**
- * Scale pixel-denominated params from the preview resolution to the export
- * resolution so the rendered look is preserved. Cell-count and unitless params
- * (motionGrid, minBlobSize, levels, decay…) are resolution-independent already.
- */
-function scaleParams(params: Params, exportWidth: number): Params {
-  const ratio = exportWidth / Math.max(1, params.renderWidth);
-  if (Math.abs(ratio - 1) < 1e-3) return params;
-  return {
-    ...params,
-    pixelSize: Math.max(1, Math.round(params.pixelSize * ratio)),
-    boxPadding: params.boxPadding * ratio,
-    mergeDistance: params.mergeDistance * ratio,
-    connectorMaxDist: params.connectorMaxDist * ratio,
-    boxWidth: params.boxWidth * ratio,
-    connectorWidth: params.connectorWidth * ratio,
-  };
-}
-
 /** Render the configured clip and return the finished mp4 bytes (no download). */
 export async function renderToMp4(opts: ExportOptions): Promise<ArrayBuffer> {
   const { source, params, settings, onProgress } = opts;
+  const modulators = opts.modulators ?? [];
+  const modSources = opts.modSources ?? [];
+  const sig = opts.signalBank ?? createSignalBank();
   if (typeof VideoEncoder === "undefined") {
     throw new Error("WebCodecs not available — use Chrome/Edge");
   }
@@ -68,7 +61,10 @@ export async function renderToMp4(opts: ExportOptions): Promise<ArrayBuffer> {
   const totalFrames = Math.max(1, Math.round(settings.exportSeconds * fps));
   const bitrate = Math.round(settings.exportBitrateMbps * 1_000_000);
   const codec = await pickCodec(width, height, bitrate, fps);
-  const exportParams = scaleParams(params, width);
+  // Scale factor is the ACTUAL even-snapped ratio (width/renderWidth), NOT
+  // settings.exportScale — the H.264 even-dimension snap perturbs it sub-pixel,
+  // and resolveFrame must scale by what we actually render at to stay WYSIWYG.
+  const scale = width / Math.max(1, params.renderWidth);
 
   const muxer = new Muxer({
     target: new ArrayBufferTarget(),
@@ -90,7 +86,7 @@ export async function renderToMp4(opts: ExportOptions): Promise<ArrayBuffer> {
   canvas.height = height;
   const ctx = canvas.getContext("2d")!;
 
-  const renderer = new Renderer();
+  const renderer = new Canvas2DRenderer();
   const state = createState();
   const frameDur = 1_000_000 / fps;
   const dur = source.duration;
@@ -101,8 +97,17 @@ export async function renderToMp4(opts: ExportOptions): Promise<ArrayBuffer> {
       if (failure) throw failure;
       const tSec = i / fps;
       // Loop finite footage if the export runs longer than the clip.
-      await source.seekTo(dur && dur > 0 ? tSec % dur : tSec);
-      renderer.render(ctx, width, height, source, i, exportParams, state);
+      const clipTime = dur && dur > 0 ? tSec % dur : tSec;
+      await source.seekTo(clipTime);
+      // Same funnel as the live loop: resolve modulators at clipTime, scale, render.
+      const p = resolveFrame(
+        params,
+        modulators,
+        modSources,
+        { frame: i, clipTime, fps, scale, raw: false },
+        sig,
+      );
+      renderer.render(ctx, width, height, source, i, p, state);
 
       const frame = new VideoFrame(canvas, {
         timestamp: Math.round(i * frameDur),

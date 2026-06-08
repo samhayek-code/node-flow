@@ -1,6 +1,7 @@
 import type { FrameSource } from "../pipeline/source";
 import type { Blob, Connector, PipelineState } from "../pipeline/types";
 import type { BoxShape, Params } from "../params";
+import type { Renderer, RenderParams } from "./renderer";
 import { updateMotion } from "../pipeline/motion";
 import { detectBlobs } from "../pipeline/blobs";
 import { buildConnectors } from "../pipeline/connectors";
@@ -75,7 +76,8 @@ function shapeBounds(shape: BoxShape, b: Box): Box {
  * context. Pure with respect to (source frame, params, state): the live loop
  * and the offline exporter call this identically, so exports match the preview.
  */
-export class Renderer {
+export class Canvas2DRenderer implements Renderer {
+  readonly backend = "canvas2d" as const;
   private work: HTMLCanvasElement;
   private workCtx: CanvasRenderingContext2D;
   private fx: HTMLCanvasElement;
@@ -86,7 +88,7 @@ export class Renderer {
     [this.fx, this.fxCtx] = makeCanvas(16, 16);
   }
 
-  private resize(w: number, h: number) {
+  private resizeWork(w: number, h: number) {
     if (this.work.width !== w || this.work.height !== h) {
       this.work.width = this.fx.width = w;
       this.work.height = this.fx.height = h;
@@ -99,10 +101,10 @@ export class Renderer {
     h: number,
     source: FrameSource,
     frameIndex: number,
-    p: Params,
+    p: RenderParams,
     state: PipelineState,
   ): Blob[] {
-    this.resize(w, h);
+    this.resizeWork(w, h);
 
     // 1. Source → work canvas at render resolution.
     this.workCtx.fillStyle = p.background;

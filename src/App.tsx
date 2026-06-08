@@ -9,16 +9,20 @@ import splineIcon from "lucide-static/icons/spline.svg";
 import wandIcon from "lucide-static/icons/wand-2.svg";
 import filmIcon from "lucide-static/icons/film.svg";
 import bookmarkIcon from "lucide-static/icons/bookmark.svg";
-import { Renderer } from "./render/compose";
+import { Canvas2DRenderer } from "./render/compose";
+import { resolveFrame } from "./render/resolve";
 import { createState } from "./pipeline/types";
 import type { FrameSource } from "./pipeline/source";
 import { GeneratedSource, createFileSource } from "./pipeline/source";
 import { useNodeVideoControls } from "./ui/controls";
+import { useStore, bridge, DEFAULT_MACROS } from "./store/store";
+import { createSignalBank } from "./audio/signalBank";
 import { DEFAULT_PARAMS, DEFAULT_EXPORT } from "./params";
-import type { Params, ExportSettings, EffectType, BoxShape, ConnectorStyle } from "./params";
+import type { ExportSettings, EffectType, BoxShape, ConnectorStyle } from "./params";
 import "./app.css";
 
-const PARAM_KEYS = Object.keys(DEFAULT_PARAMS).filter((k) => k !== "raw");
+const PARAM_KEYS = Object.keys(DEFAULT_PARAMS);
+const MACRO_KEYS = Object.keys(DEFAULT_MACROS);
 const EXPORT_KEYS = Object.keys(DEFAULT_EXPORT);
 
 const LEVA_THEME = {
@@ -103,17 +107,19 @@ export function App() {
   const presetInputRef = useRef<HTMLInputElement>(null);
 
   const sourceRef = useRef<FrameSource>(new GeneratedSource());
-  const rendererRef = useRef(new Renderer());
+  const rendererRef = useRef(new Canvas2DRenderer());
   const stateRef = useRef(createState());
-  const paramsRef = useRef<Params>({ ...DEFAULT_PARAMS });
   const frameRef = useRef(0);
   const exportingRef = useRef(false);
-  const rawRef = useRef(false);
-  const setLevaRef = useRef<((patch: Record<string, unknown>) => void) | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ x: number; y: number; px: number; py: number } | null>(null);
   const lockedRef = useRef(false);
   const lockedDimsRef = useRef({ w: 960, h: 540 });
+
+  // Store mirrors for the render loop: a vanilla subscription, zero re-renders.
+  const projRef = useRef(useStore.getState().project);
+  const viewRef = useRef(useStore.getState().view);
+  const sigRef = useRef(createSignalBank());
 
   const [hud, setHud] = useState({ source: "generated", w: 0, h: 0, blobs: 0, fps: 0 });
   const [transport, setTransport] = useState({ seekable: false, time: 0, duration: 0, playing: true });
@@ -121,14 +127,23 @@ export function App() {
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [exportProgress, setExportProgress] = useState<number | null>(null);
-  const [raw, setRaw] = useState(false);
+  const raw = useStore((s) => s.view.raw);
+  const exportCfg = useStore((s) => s.project.export);
   const [locked, setLocked] = useState(false);
   const [lockedDims, setLockedDims] = useState({ w: 960, h: 540 });
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [showExport, setShowExport] = useState(false);
-  const [exportCfg, setExportCfg] = useState<ExportSettings>(DEFAULT_EXPORT);
-  const exportCfgRef = useRef<ExportSettings>(DEFAULT_EXPORT);
+
+  // Keep the loop's store mirror current (project + view only; ui/transient excluded).
+  useEffect(
+    () =>
+      useStore.subscribe((s) => {
+        projRef.current = s.project;
+        viewRef.current = s.view;
+      }),
+    [],
+  );
 
   const flash = useCallback((msg: string) => {
     setToast(msg);
@@ -164,7 +179,6 @@ export function App() {
         lockedDimsRef.current = { w: rw, h: rh };
         lockedRef.current = true;
         setLockedDims({ w: rw, h: rh });
-        setLevaRef.current?.({ renderWidth: rw, renderHeight: rh });
         setLocked(true);
         flash(`Loaded ${file.name}`);
       } catch {
@@ -182,16 +196,12 @@ export function App() {
   }, []);
 
   const toggleRaw = useCallback(() => {
-    rawRef.current = !rawRef.current;
-    setRaw(rawRef.current);
+    const st = useStore.getState();
+    st.setView({ raw: !st.view.raw });
   }, []);
 
   const updateExport = useCallback((patch: Partial<ExportSettings>) => {
-    setExportCfg((c) => {
-      const next = { ...c, ...patch };
-      exportCfgRef.current = next;
-      return next;
-    });
+    useStore.getState().patchExport(patch);
   }, []);
 
   const onScrub = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -199,11 +209,8 @@ export function App() {
   }, []);
 
   const savePreset = useCallback(() => {
-    const p = paramsRef.current as unknown as Record<string, unknown>;
-    const ex = exportCfgRef.current as unknown as Record<string, unknown>;
-    const out: Record<string, unknown> = {};
-    for (const k of PARAM_KEYS) out[k] = p[k];
-    for (const k of EXPORT_KEYS) out[k] = ex[k];
+    const { params, macros, export: ex } = useStore.getState().project;
+    const out = { ...params, ...macros, ...ex };
     const blob = new Blob([JSON.stringify(out, null, 2)], { type: "application/json" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
@@ -218,13 +225,17 @@ export function App() {
     exportingRef.current = true;
     try {
       const { exportVideo } = await import("./export/encoder");
+      const proj = useStore.getState().project;
       const d = lockedRef.current
         ? lockedDimsRef.current
-        : { w: paramsRef.current.renderWidth, h: paramsRef.current.renderHeight };
+        : { w: proj.params.renderWidth, h: proj.params.renderHeight };
       await exportVideo({
         source: sourceRef.current,
-        params: { ...paramsRef.current, renderWidth: d.w, renderHeight: d.h },
-        settings: exportCfgRef.current,
+        params: { ...proj.params, renderWidth: d.w, renderHeight: d.h },
+        settings: proj.export,
+        modulators: proj.modulators,
+        modSources: proj.modSources,
+        signalBank: sigRef.current,
         onProgress: (v) => setExportProgress(v),
       });
       flash("Export complete");
@@ -241,18 +252,49 @@ export function App() {
     void runExport();
   }, [runExport]);
 
-  const { values, set } = useNodeVideoControls(
+  const { set } = useNodeVideoControls(
     {
       onSavePreset: savePreset,
       onLoadPreset: () => presetInputRef.current?.click(),
     },
     locked,
   );
-  setLevaRef.current = set;
 
+  // Edge C (store -> Leva): reflect undo/redo/load/macro/preset changes into the
+  // panel. bridge.writebackActive makes the resulting onChange echoes no-ops.
   useEffect(() => {
-    paramsRef.current = values;
-  }, [values]);
+    const h = useStore.getState()._history;
+    h.writeback = (doc) => {
+      bridge.writebackActive = true;
+      try {
+        set({ ...doc.params, ...doc.macros } as never);
+      } finally {
+        bridge.writebackActive = false;
+      }
+    };
+    return () => {
+      h.writeback = undefined;
+    };
+  }, [set]);
+
+  // Global undo/redo (⌘Z / ⌘⇧Z) + drag-bracket release. Leva fires no edit-end,
+  // so a window pointerup seals the coalesced drag entry even if released off-panel.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return;
+      e.preventDefault();
+      const st = useStore.getState();
+      if (e.shiftKey) st.redo();
+      else st.undo();
+    };
+    const onUp = () => useStore.getState().endDrag();
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("pointerup", onUp);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("pointerup", onUp);
+    };
+  }, []);
 
   // Decorate Leva folder titles with a color + lucide icon, matched by text.
   useEffect(() => {
@@ -312,18 +354,19 @@ export function App() {
     async (file: File) => {
       try {
         const parsed = JSON.parse(await file.text());
-        const patch: Record<string, unknown> = {};
-        for (const k of PARAM_KEYS) if (k in parsed) patch[k] = parsed[k];
-        set(patch as never);
+        const flat: Record<string, unknown> = {};
+        for (const k of PARAM_KEYS) if (k in parsed) flat[k] = parsed[k];
+        for (const k of MACRO_KEYS) if (k in parsed) flat[k] = parsed[k];
+        useStore.getState().applyLook(flat);
         const ex: Record<string, unknown> = {};
         for (const k of EXPORT_KEYS) if (k in parsed) ex[k] = parsed[k];
-        updateExport(ex as Partial<ExportSettings>);
+        if (Object.keys(ex).length) useStore.getState().patchExport(ex as Partial<ExportSettings>);
         flash("Preset loaded");
       } catch {
         flash("Invalid preset file");
       }
     },
-    [set, flash, updateExport],
+    [flash],
   );
 
   // The render loop.
@@ -340,16 +383,27 @@ export function App() {
         raf = requestAnimationFrame(loop);
         return;
       }
-      const base = paramsRef.current;
-      const p = rawRef.current ? { ...base, raw: true } : base;
+      const proj = projRef.current;
+      const view = viewRef.current;
+      const base = proj.params;
       const src = sourceRef.current;
-      const w = lockedRef.current ? lockedDimsRef.current.w : Math.max(16, Math.round(p.renderWidth));
-      const h = lockedRef.current ? lockedDimsRef.current.h : Math.max(16, Math.round(p.renderHeight));
+      const w = lockedRef.current ? lockedDimsRef.current.w : Math.max(16, Math.round(base.renderWidth));
+      const h = lockedRef.current ? lockedDimsRef.current.h : Math.max(16, Math.round(base.renderHeight));
       if (canvas.width !== w || canvas.height !== h) {
         canvas.width = w;
         canvas.height = h;
       }
 
+      // The single funnel: resolve modulators at clip time, scale (1 in preview),
+      // inject raw — identical to the export path.
+      const clipTime = src.seekable ? src.currentTime : frameRef.current / 60;
+      const p = resolveFrame(
+        base,
+        proj.modulators,
+        proj.modSources,
+        { frame: frameRef.current, clipTime, fps: 60, scale: 1, raw: view.raw },
+        sigRef.current,
+      );
       const blobs = rendererRef.current.render(ctx, w, h, src, frameRef.current, p, stateRef.current);
       frameRef.current++;
       frames++;
@@ -468,7 +522,11 @@ export function App() {
             </div>
           </div>
 
-          <div className="nv-leva-scroll">
+          <div
+            className="nv-leva-scroll"
+            onPointerDownCapture={() => useStore.getState().beginDrag()}
+            onPointerUpCapture={() => useStore.getState().endDrag()}
+          >
             <Leva fill flat titleBar={false} theme={LEVA_THEME} />
           </div>
 
@@ -476,7 +534,7 @@ export function App() {
             <button
               className="nv-rand"
               onClick={() => {
-                set(randomLook() as never);
+                useStore.getState().applyLook(randomLook());
                 flash("Randomized ✨");
               }}
             >
@@ -576,8 +634,9 @@ export function App() {
               <span>Resolution</span>
               <div className="nv-scale-grid">
                 {[0.25, 0.5, 1, 2].map((s) => {
-                  const bw = locked ? lockedDims.w : values.renderWidth;
-                  const bh = locked ? lockedDims.h : values.renderHeight;
+                  const base = useStore.getState().project.params;
+                  const bw = locked ? lockedDims.w : base.renderWidth;
+                  const bh = locked ? lockedDims.h : base.renderHeight;
                   const w = Math.round((bw * s) / 2) * 2;
                   const h = Math.round((bh * s) / 2) * 2;
                   return (
