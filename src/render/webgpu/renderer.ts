@@ -15,6 +15,11 @@ const EFFECT_ID: Partial<Record<EffectType, number>> = {
   threshold: 2,
   solarize: 3,
   scanlines: 4,
+  dither: 5,
+  chromatic: 6,
+  edges: 7,
+  halftone: 8,
+  // ascii stays CPU (glyph rasterization, design A8) — not in this map.
 };
 
 export function gpuSupportsEffect(e: EffectType): boolean {
@@ -23,17 +28,33 @@ export function gpuSupportsEffect(e: EffectType): boolean {
 
 /** Fullscreen-triangle effect pass. textureLoad (not textureSample) reads exact
  *  texels so cell averages match Canvas2D's ImageData byte math. */
+// Bayer 4x4, pre-normalized (v+0.5)/16 to match effects/util.ts BAYER4.
 const EFFECT_WGSL = /* wgsl */ `
 struct U {
   w: u32, h: u32, size: u32, levels: u32,
-  effectType: u32, invert: u32, pad0: u32, pad1: u32,
+  effectType: u32, invert: u32, mono: u32, pad1: u32,
   bg: vec4<f32>,
   fg: vec4<f32>,
 };
 @group(0) @binding(0) var tex: texture_2d<f32>;
 @group(0) @binding(1) var<uniform> u: U;
 
+const BAYER = array<f32, 16>(
+  0.03125, 0.53125, 0.15625, 0.65625,
+  0.78125, 0.28125, 0.90625, 0.40625,
+  0.21875, 0.71875, 0.09375, 0.59375,
+  0.96875, 0.46875, 0.84375, 0.34375
+);
+
 fn luma601(c: vec3<f32>) -> f32 { return c.r * 0.299 + c.g * 0.587 + c.b * 0.114; }
+// Match JS Math.round (ties toward +inf) so quantizers stay byte-exact.
+fn jround(x: f32) -> f32 { return floor(x + 0.5); }
+
+fn loadAt(x: i32, y: i32) -> vec3<f32> {
+  let cx = clamp(x, 0, i32(u.w) - 1);
+  let cy = clamp(y, 0, i32(u.h) - 1);
+  return textureLoad(tex, vec2<i32>(cx, cy), 0).rgb;
+}
 
 fn blockAvg(px: i32, py: i32, size: i32) -> vec3<f32> {
   let w = i32(u.w);
@@ -66,14 +87,14 @@ fn fs(@builtin(position) fragPos: vec4<f32>) -> @location(0) vec4<f32> {
   let py = i32(fragPos.y);
   let size = max(1, i32(u.size));
   let et = u.effectType;
+  let lm1 = f32(max(2u, u.levels) - 1u);
   var col: vec3<f32>;
 
   if (et == 1u) { // pixelate
     col = blockAvg(px, py, size);
   } else if (et == 2u) { // threshold (duotone posterize)
     let avg = blockAvg(px, py, size);
-    let lm1 = f32(max(2u, u.levels) - 1u);
-    let q = round(luma601(avg) * lm1) / lm1;
+    let q = jround(luma601(avg) * lm1) / lm1;
     col = mix(u.bg.rgb, u.fg.rgb, q);
   } else if (et == 3u) { // solarize
     let c = textureLoad(tex, vec2<i32>(px, py), 0).rgb;
@@ -85,6 +106,56 @@ fn fs(@builtin(position) fragPos: vec4<f32>) -> @location(0) vec4<f32> {
     let half = max(1, gap / 2);
     let dark = select(0.4, 1.0, (py % gap) < half);
     col = c * dark;
+  } else if (et == 5u) { // dither (ordered Bayer, per channel or mono)
+    let avg = blockAvg(px, py, size);
+    let cellRow = py / size;
+    let cellCol = px / size;
+    let t = BAYER[(cellRow & 3) * 4 + (cellCol & 3)] - 0.5;
+    if (u.mono == 1u) {
+      let q = clamp(jround(luma601(avg) * lm1 + t), 0.0, lm1) / lm1;
+      col = vec3<f32>(q);
+    } else {
+      col = vec3<f32>(
+        clamp(jround(avg.r * lm1 + t), 0.0, lm1) / lm1,
+        clamp(jround(avg.g * lm1 + t), 0.0, lm1) / lm1,
+        clamp(jround(avg.b * lm1 + t), 0.0, lm1) / lm1,
+      );
+    }
+  } else if (et == 6u) { // chromatic aberration
+    let shift = max(1, size);
+    col = vec3<f32>(
+      loadAt(px + shift, py).r,
+      textureLoad(tex, vec2<i32>(px, py), 0).g,
+      loadAt(px - shift, py).b,
+    );
+  } else if (et == 7u) { // sobel edges (duotone)
+    let gain = 1.0 + f32(u.levels) * 0.5;
+    let tl = luma601(loadAt(px - 1, py - 1));
+    let tc = luma601(loadAt(px, py - 1));
+    let tr = luma601(loadAt(px + 1, py - 1));
+    let ml = luma601(loadAt(px - 1, py));
+    let mr = luma601(loadAt(px + 1, py));
+    let bl = luma601(loadAt(px - 1, py + 1));
+    let bc = luma601(loadAt(px, py + 1));
+    let brr = luma601(loadAt(px + 1, py + 1));
+    let gx = -tl - 2.0 * ml - bl + tr + 2.0 * mr + brr;
+    let gy = -tl - 2.0 * tc - tr + bl + 2.0 * bc + brr;
+    let mag = min(1.0, sqrt(gx * gx + gy * gy) * gain);
+    col = mix(u.bg.rgb, u.fg.rgb, mag);
+  } else if (et == 8u) { // halftone (one dot per cell)
+    let x0 = (px / size) * size;
+    let y0 = (py / size) * size;
+    let avg = blockAvg(px, py, size);
+    let l = luma601(avg);
+    let maxR = f32(size) * 0.62;
+    let radius = maxR * sqrt(l);
+    let cx = f32(x0) + f32(size) * 0.5;
+    let cy = f32(y0) + f32(size) * 0.5;
+    let d = distance(vec2<f32>(f32(px) + 0.5, f32(py) + 0.5), vec2<f32>(cx, cy));
+    // smoothstep edge approximates Canvas2D's anti-aliased arc fill.
+    let cov = select(0.0, 1.0 - smoothstep(radius - 0.7, radius + 0.7, d), radius >= 0.35);
+    let dotCol = select(avg, u.fg.rgb, u.mono == 1u);
+    col = mix(u.bg.rgb, dotCol, cov);
   } else { // none / passthrough
     col = textureLoad(tex, vec2<i32>(px, py), 0).rgb;
   }
@@ -165,6 +236,7 @@ export class WebGPURenderer {
     u32[3] = Math.max(2, Math.round(p.levels));
     u32[4] = EFFECT_ID[p.effect] ?? 0;
     u32[5] = p.invert ? 1 : 0;
+    u32[6] = p.mono ? 1 : 0;
     const [br, bg, bb] = hexToRgb(p.background);
     const [fr, fg, fb] = hexToRgb(p.effectColor);
     f32[8] = br / 255;
