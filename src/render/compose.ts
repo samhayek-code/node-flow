@@ -2,6 +2,7 @@ import type { FrameSource } from "../pipeline/source";
 import type { Blob, Connector, PipelineState } from "../pipeline/types";
 import type { BoxShape, Params } from "../params";
 import type { Renderer, RenderParams } from "./renderer";
+import { gpuSupportsEffect, type WebGPURenderer } from "./webgpu/renderer";
 import { updateMotion } from "../pipeline/motion";
 import { detectBlobs } from "../pipeline/blobs";
 import { buildConnectors } from "../pipeline/connectors";
@@ -78,6 +79,9 @@ function shapeBounds(shape: BoxShape, b: Box): Box {
  */
 export class Canvas2DRenderer implements Renderer {
   readonly backend = "canvas2d" as const;
+  /** Optional GPU effect accelerator: computes the effect layer on the GPU,
+   *  drawn back into the 2D pipeline. null = pure Canvas2D (the default). */
+  private gpu: WebGPURenderer | null = null;
   private work: HTMLCanvasElement;
   private workCtx: CanvasRenderingContext2D;
   private fx: HTMLCanvasElement;
@@ -86,6 +90,11 @@ export class Canvas2DRenderer implements Renderer {
   constructor() {
     [this.work, this.workCtx] = makeCanvas(16, 16);
     [this.fx, this.fxCtx] = makeCanvas(16, 16);
+  }
+
+  /** Inject (or clear) the GPU effect accelerator. */
+  setGpuEffect(g: WebGPURenderer | null): void {
+    this.gpu = g;
   }
 
   private resizeWork(w: number, h: number) {
@@ -128,11 +137,18 @@ export class Canvas2DRenderer implements Renderer {
     out.globalAlpha = 1;
     out.drawImage(this.work, 0, 0, w, h);
 
-    // 4. Effect layer, masked to scope.
+    // 4. Effect layer, masked to scope. Computed on the GPU when available
+    //    (it applies invert in-shader), else the Canvas2D effect.
     if (p.effect !== "none") {
-      const src = this.workCtx.getImageData(0, 0, w, h);
-      EFFECTS[p.effect].render(this.fxCtx, src, p);
-      if (p.invert) this.invertCanvas(w, h);
+      if (this.gpu && gpuSupportsEffect(p.effect)) {
+        this.gpu.renderEffect(this.work, w, h, p);
+        this.fxCtx.clearRect(0, 0, w, h);
+        this.fxCtx.drawImage(this.gpu.output(), 0, 0, w, h);
+      } else {
+        const src = this.workCtx.getImageData(0, 0, w, h);
+        EFFECTS[p.effect].render(this.fxCtx, src, p);
+        if (p.invert) this.invertCanvas(w, h);
+      }
 
       if (p.effectScope === "full") {
         out.drawImage(this.fx, 0, 0, w, h);

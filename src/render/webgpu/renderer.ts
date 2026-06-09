@@ -172,23 +172,32 @@ export class WebGPURenderer {
   private ctx: GPUCanvasContext;
   private pipeline: GPURenderPipeline;
   private uniformBuf: GPUBuffer;
+  private canvas: OffscreenCanvas;
   private srcTex: GPUTexture | null = null;
   private bindGroup: GPUBindGroup | null = null;
   private srcW = 0;
   private srcH = 0;
 
-  private constructor(gpu: GpuContext, ctx: GPUCanvasContext, pipeline: GPURenderPipeline, uniformBuf: GPUBuffer) {
+  private constructor(
+    gpu: GpuContext,
+    ctx: GPUCanvasContext,
+    pipeline: GPURenderPipeline,
+    uniformBuf: GPUBuffer,
+    canvas: OffscreenCanvas,
+  ) {
     this.gpu = gpu;
     this.ctx = ctx;
     this.pipeline = pipeline;
     this.uniformBuf = uniformBuf;
+    this.canvas = canvas;
   }
 
-  /** Acquire a device, configure the canvas's WebGPU context, build the effect
-   *  pipeline. Returns null on any failure so the caller falls back. */
-  static async create(canvas: HTMLCanvasElement | OffscreenCanvas): Promise<WebGPURenderer | null> {
+  /** Acquire a device, build the effect pipeline on an internal OffscreenCanvas.
+   *  Returns null on any failure so the caller falls back to Canvas2D. */
+  static async create(): Promise<WebGPURenderer | null> {
     const gpu = await requestGpu();
     if (!gpu) return null;
+    const canvas = new OffscreenCanvas(16, 16);
     const ctx = canvas.getContext("webgpu") as GPUCanvasContext | null;
     if (!ctx) return null;
     ctx.configure({ device: gpu.device, format: gpu.format, alphaMode: "opaque" });
@@ -204,7 +213,12 @@ export class WebGPURenderer {
       size: 64,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
-    return new WebGPURenderer(gpu, ctx, pipeline, uniformBuf);
+    return new WebGPURenderer(gpu, ctx, pipeline, uniformBuf, canvas);
+  }
+
+  /** The offscreen canvas the effect is rendered into — drawImage'd by compose. */
+  output(): OffscreenCanvas {
+    return this.canvas;
   }
 
   private ensureTexture(w: number, h: number): void {
@@ -254,6 +268,10 @@ export class WebGPURenderer {
    *  full-frame. Blob masking + linear-light compositing arrive in the next step. */
   renderEffect(source: HTMLCanvasElement | OffscreenCanvas, w: number, h: number, p: Params): void {
     const device = this.gpu.device;
+    if (this.canvas.width !== w || this.canvas.height !== h) {
+      this.canvas.width = w;
+      this.canvas.height = h;
+    }
     this.ensureTexture(w, h);
     device.queue.copyExternalImageToTexture({ source }, { texture: this.srcTex! }, [w, h]);
     this.writeUniform(p, w, h);

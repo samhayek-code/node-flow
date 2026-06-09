@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Leva } from "leva";
-import { Shuffle, Download, Sparkles, Film, Play, Pause, Workflow, Boxes, Activity, Maximize2, Eye, EyeOff, ZoomIn, ZoomOut, Maximize, Music, X } from "lucide-react";
+import { Shuffle, Download, Sparkles, Film, Play, Pause, Workflow, Boxes, Activity, Maximize2, Eye, EyeOff, ZoomIn, ZoomOut, Maximize, Music, X, Cpu } from "lucide-react";
 import slidersIcon from "lucide-static/icons/sliders-horizontal.svg";
 import monitorIcon from "lucide-static/icons/monitor.svg";
 import activityIcon from "lucide-static/icons/activity.svg";
@@ -10,6 +10,7 @@ import wandIcon from "lucide-static/icons/wand-2.svg";
 import filmIcon from "lucide-static/icons/film.svg";
 import bookmarkIcon from "lucide-static/icons/bookmark.svg";
 import { Canvas2DRenderer } from "./render/compose";
+import { WebGPURenderer } from "./render/webgpu/renderer";
 import { resolveFrame } from "./render/resolve";
 import { createState } from "./pipeline/types";
 import type { FrameSource } from "./pipeline/source";
@@ -41,6 +42,12 @@ const AUDIO_TARGETS: { target: ModParam; weight: number }[] = [
   { target: "connectorMaxDist", weight: 0.5 },
 ];
 const audioWeight = (t: ModParam) => AUDIO_TARGETS.find((a) => a.target === t)?.weight ?? 0.5;
+
+// GPU effect accelerator: auto-on with ?gpu in the URL or a sticky localStorage
+// preference; also a runtime toggle. Canvas2D stays the default everywhere else.
+const GPU_FLAG =
+  (typeof location !== "undefined" && new URLSearchParams(location.search).has("gpu")) ||
+  (typeof localStorage !== "undefined" && localStorage.getItem("nf-gpu") === "1");
 import type { ExportSettings, EffectType, BoxShape, ConnectorStyle } from "./params";
 import "./app.css";
 
@@ -140,6 +147,7 @@ export function App() {
   const projRef = useRef(useStore.getState().project);
   const viewRef = useRef(useStore.getState().view);
   const sigRef = useRef(createSignalBank());
+  const gpuRef = useRef<WebGPURenderer | null>(null);
 
   const [hud, setHud] = useState({ source: "generated", w: 0, h: 0, blobs: 0, fps: 0 });
   const [transport, setTransport] = useState({ seekable: false, time: 0, duration: 0, playing: true });
@@ -159,6 +167,8 @@ export function App() {
   const [audioDepth, setAudioDepth] = useState(0.4);
   const [audioResp, setAudioResp] = useState(0.5);
   const [audioPlaying, setAudioPlaying] = useState(false);
+  const [gpuOn, setGpuOn] = useState(false);
+  const gpuAvail = supports.webGPU();
 
   // Keep the loop's store mirror current (project + view only; ui/transient excluded).
   useEffect(
@@ -310,6 +320,57 @@ export function App() {
     }
     return () => engine.dispose();
   }, []);
+
+  // --- GPU effect accelerator (P1-B) ---
+  const toggleGpu = useCallback(async () => {
+    if (gpuOn) {
+      rendererRef.current.setGpuEffect(null);
+      setGpuOn(false);
+      try {
+        localStorage.setItem("nf-gpu", "0");
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
+    if (!gpuRef.current) {
+      const g = await WebGPURenderer.create();
+      if (!g) {
+        flash("WebGPU unavailable in this browser");
+        return;
+      }
+      gpuRef.current = g;
+    }
+    rendererRef.current.setGpuEffect(gpuRef.current);
+    setGpuOn(true);
+    try {
+      localStorage.setItem("nf-gpu", "1");
+    } catch {
+      /* ignore */
+    }
+  }, [gpuOn, flash]);
+
+  useEffect(() => {
+    let disposed = false;
+    const renderer = rendererRef.current;
+    if (GPU_FLAG && gpuAvail) {
+      void WebGPURenderer.create().then((g) => {
+        if (disposed || !g) {
+          g?.dispose();
+          return;
+        }
+        gpuRef.current = g;
+        renderer.setGpuEffect(g);
+        setGpuOn(true);
+      });
+    }
+    return () => {
+      disposed = true;
+      renderer.setGpuEffect(null);
+      gpuRef.current?.dispose();
+      gpuRef.current = null;
+    };
+  }, [gpuAvail]);
 
   const onScrub = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     void sourceRef.current.seekTo(Number(e.target.value));
@@ -657,6 +718,18 @@ export function App() {
             {raw ? <EyeOff size={14} strokeWidth={2} /> : <Eye size={14} strokeWidth={2} />}
             Raw
           </button>
+          {gpuAvail && (
+            <button
+              className="nv-toggle"
+              data-active={gpuOn || undefined}
+              onClick={toggleGpu}
+              aria-pressed={gpuOn}
+              title="Render effects on the GPU (WebGPU)"
+            >
+              <Cpu size={14} strokeWidth={2} />
+              GPU
+            </button>
+          )}
           <div className="nv-stats">
             <span className="nv-stat">
               <Maximize2 size={13} strokeWidth={2} />
