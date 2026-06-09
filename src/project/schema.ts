@@ -39,6 +39,7 @@ const DEFAULT_MACROS: MacroState = {
 
 const DEFAULT_SOURCE: SourceMeta = {
   kind: "generated",
+  duration: null,
 };
 
 export function serializeProject(
