@@ -48,7 +48,7 @@ const audioWeight = (t: ModParam) => AUDIO_TARGETS.find((a) => a.target === t)?.
 const GPU_FLAG =
   (typeof location !== "undefined" && new URLSearchParams(location.search).has("gpu")) ||
   (typeof localStorage !== "undefined" && localStorage.getItem("nf-gpu") === "1");
-import type { ExportSettings, EffectType, BoxShape, ConnectorStyle } from "./params";
+import type { ExportSettings, ExportFormat, EffectType, BoxShape, ConnectorStyle } from "./params";
 import "./app.css";
 
 const LEVA_THEME = {
@@ -423,12 +423,12 @@ export function App() {
     setExportProgress(0);
     exportingRef.current = true;
     try {
-      const { exportVideo } = await import("./export/encoder");
+      const enc = await import("./export/encoder");
       const proj = useStore.getState().project;
       const d = lockedRef.current
         ? lockedDimsRef.current
         : { w: proj.params.renderWidth, h: proj.params.renderHeight };
-      await exportVideo({
+      const opts = {
         source: sourceRef.current,
         params: { ...proj.params, renderWidth: d.w, renderHeight: d.h },
         settings: proj.export,
@@ -436,9 +436,15 @@ export function App() {
         modSources: proj.modSources,
         signalBank: sigRef.current,
         gpu: gpuOn ? gpuRef.current : null,
-        onProgress: (v) => setExportProgress(v),
-      });
-      flash("Export complete");
+        onProgress: (v: number) => setExportProgress(v),
+      };
+      if (proj.export.format === "png") {
+        await enc.exportPngSequence(opts);
+        flash("PNG sequence exported");
+      } else {
+        await enc.exportVideo(opts);
+        flash("Export complete");
+      }
     } catch (err) {
       flash(`Export failed: ${(err as Error).message}`);
     } finally {
@@ -943,6 +949,17 @@ export function App() {
         <div className="nv-overlay" onClick={() => setShowExport(false)}>
           <div className="nv-modal nv-export-modal" onClick={(e) => e.stopPropagation()}>
             <div className="nv-modal-title">Export settings</div>
+            <label className="nv-field">
+              <span>Format</span>
+              <select
+                name="format"
+                value={exportCfg.format}
+                onChange={(e) => updateExport({ format: e.target.value as ExportFormat })}
+              >
+                <option value="mp4">MP4 · H.264</option>
+                <option value="png">PNG sequence · .zip</option>
+              </select>
+            </label>
             <div className="nv-field nv-field-col">
               <span>Resolution</span>
               <div className="nv-scale-grid">
@@ -988,20 +1005,24 @@ export function App() {
                 onChange={(e) => updateExport({ exportSeconds: Number(e.target.value) })}
               />
             </label>
-            <label className="nv-field">
-              <span>Bitrate (Mbps)</span>
-              <input
-                type="number"
-                min={1}
-                max={60}
-                step={1}
-                name="exportBitrateMbps"
-                value={exportCfg.exportBitrateMbps}
-                onChange={(e) => updateExport({ exportBitrateMbps: Number(e.target.value) })}
-              />
-            </label>
+            {exportCfg.format !== "png" && (
+              <label className="nv-field">
+                <span>Bitrate (Mbps)</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={60}
+                  step={1}
+                  name="exportBitrateMbps"
+                  value={exportCfg.exportBitrateMbps}
+                  onChange={(e) => updateExport({ exportBitrateMbps: Number(e.target.value) })}
+                />
+              </label>
+            )}
             <div className="nv-filesize">
-              ≈ {((exportCfg.exportBitrateMbps * exportCfg.exportSeconds) / 8).toFixed(1)} MB estimated
+              {exportCfg.format === "png"
+                ? `${Math.max(1, Math.round(exportCfg.exportSeconds * exportCfg.exportFps))} frames`
+                : `≈ ${((exportCfg.exportBitrateMbps * exportCfg.exportSeconds) / 8).toFixed(1)} MB estimated`}
             </div>
             <div className="nv-modal-actions">
               <button className="nv-btn-ghost" onClick={() => setShowExport(false)}>
@@ -1009,7 +1030,7 @@ export function App() {
               </button>
               <button className="nv-export" onClick={confirmExport}>
                 <Download size={16} strokeWidth={2.2} />
-                Render .mp4
+                {exportCfg.format === "png" ? "Export PNGs" : "Render .mp4"}
               </button>
             </div>
           </div>

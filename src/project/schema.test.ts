@@ -77,6 +77,9 @@ describe("schema round-trip", () => {
         exportFps: 60,
         exportSeconds: 10,
         exportBitrateMbps: 24,
+        format: "mp4",
+        transparent: false,
+        includeAudio: true,
       },
     };
     const file = serializeProject(doc);

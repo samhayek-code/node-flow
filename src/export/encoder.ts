@@ -144,9 +144,64 @@ export async function renderToMp4(opts: ExportOptions): Promise<ArrayBuffer> {
 export async function exportVideo(opts: ExportOptions): Promise<void> {
   const buffer = await renderToMp4(opts);
   const blob = new Blob([buffer], { type: "video/mp4" });
+  triggerDownload(blob, `node-flow-${Date.now()}.mp4`);
+}
+
+/** Render every frame to a PNG and download them as a single .zip (store mode —
+ *  PNGs are already compressed). Lossless frames for compositing in an NLE/AE. */
+export async function exportPngSequence(opts: ExportOptions): Promise<void> {
+  const { source, params, settings, onProgress } = opts;
+  const modulators = opts.modulators ?? [];
+  const modSources = opts.modSources ?? [];
+  const sig = opts.signalBank ?? createSignalBank();
+
+  let width = Math.round(params.renderWidth * settings.exportScale);
+  let height = Math.round(params.renderHeight * settings.exportScale);
+  width -= width % 2;
+  height -= height % 2;
+  const scale = width / Math.max(1, params.renderWidth);
+  const fps = settings.exportFps;
+  const totalFrames = Math.max(1, Math.round(settings.exportSeconds * fps));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d", { alpha: settings.transparent })!;
+
+  const renderer = new Canvas2DRenderer();
+  renderer.setGpuEffect(opts.gpu ?? null);
+  const state = createState();
+  const dur = source.duration;
+  const pad = String(totalFrames).length;
+  const files: Record<string, Uint8Array> = {};
+
+  source.setPlaying(false);
+  try {
+    for (let i = 0; i < totalFrames; i++) {
+      const tSec = i / fps;
+      const clipTime = dur && dur > 0 ? tSec % dur : tSec;
+      await source.seekTo(clipTime);
+      const p = resolveFrame(params, modulators, modSources, { frame: i, clipTime, fps, scale, raw: false }, sig);
+      await renderer.render(ctx, width, height, source, i, p, state, true);
+      const blob = await new Promise<Blob>((res, rej) =>
+        canvas.toBlob((b) => (b ? res(b) : rej(new Error("toBlob failed"))), "image/png"),
+      );
+      files[`frame_${String(i).padStart(pad, "0")}.png`] = new Uint8Array(await blob.arrayBuffer());
+      onProgress((i + 1) / totalFrames);
+    }
+  } finally {
+    source.setPlaying(true);
+  }
+
+  const { zipSync } = await import("fflate");
+  const zipped = zipSync(files, { level: 0 });
+  triggerDownload(new Blob([zipped], { type: "application/zip" }), `node-flow-frames-${Date.now()}.zip`);
+}
+
+function triggerDownload(blob: Blob, name: string): void {
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = `node-flow-${Date.now()}.mp4`;
+  a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }

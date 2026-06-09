@@ -56,6 +56,9 @@ function makeDoc(): ProjectDoc {
       exportFps: 30,
       exportSeconds: 6,
       exportBitrateMbps: 12,
+      format: "mp4",
+      transparent: false,
+      includeAudio: true,
     },
   };
 }

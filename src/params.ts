@@ -60,11 +60,16 @@ export interface Params {
   effectColor: string; // foreground for mono/ascii/halftone
 }
 
+export type ExportFormat = "mp4" | "webm" | "png";
+
 export interface ExportSettings {
   exportScale: number; // fraction of the render dimensions (0.25 / 0.5 / 1 / 2)
   exportFps: number;
   exportSeconds: number;
   exportBitrateMbps: number;
+  format: ExportFormat; // mp4 (H.264) | webm (VP9, alpha-capable) | png (zip sequence)
+  transparent: boolean; // webm only: render on a transparent background (alpha)
+  includeAudio: boolean; // mux the loaded music track into the video
 }
 
 export const DEFAULT_EXPORT: ExportSettings = {
@@ -72,6 +77,9 @@ export const DEFAULT_EXPORT: ExportSettings = {
   exportFps: 30,
   exportSeconds: 6,
   exportBitrateMbps: 12,
+  format: "mp4",
+  transparent: false,
+  includeAudio: true,
 };
 
 export const DEFAULT_PARAMS: Params = {
