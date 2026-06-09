@@ -719,3 +719,34 @@ button svg,
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* Re-link prompt — shown when a restored project referenced a video file. */
+.nv-relink {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: var(--radius);
+  background: rgba(18, 18, 21, 0.92);
+  border: 1px solid var(--hair-strong);
+  color: var(--muted);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+.nv-relink-btn {
+  padding: 4px 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--accent);
+  background: transparent;
+  color: var(--accent-soft);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.nv-relink-btn:hover {
+  background: rgba(59, 130, 246, 0.12);
+}

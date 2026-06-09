@@ -6,8 +6,8 @@ import type { MacroState } from "../store/types";
 import { useStore, bridge, DEFAULT_MACROS } from "../store/store";
 
 export interface ControlCallbacks {
-  onSavePreset: () => void;
-  onLoadPreset: () => void;
+  onSaveProject: () => void;
+  onOpenProject: () => void;
 }
 
 type LevaCtx = { initial: boolean };
@@ -185,10 +185,10 @@ export function useNodeVideoControls(callbacks: ControlCallbacks, locked: boolea
         },
         fset("#f472b6", false),
       ),
-      Presets: folder(
+      Project: folder(
         {
-          "Save preset…": button(() => cb.current.onSavePreset()),
-          "Load preset…": button(() => cb.current.onLoadPreset()),
+          "Save project…": button(() => cb.current.onSaveProject()),
+          "Open project…": button(() => cb.current.onOpenProject()),
         },
         fset("#9ca3af"),
       ),

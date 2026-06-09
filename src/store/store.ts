@@ -6,6 +6,13 @@
 import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
 import { immer } from "zustand/middleware/immer";
+import { setAutoFreeze } from "immer";
+
+// The store state holds a non-plain object (`_history`, with a mutable `writeback`
+// hook the App assigns after mount). immer's default auto-freeze would freeze it
+// and make that assignment throw, so disable it. Snapshots stay structurally
+// shared; we never mutate captured history snapshots, so freezing buys nothing.
+setAutoFreeze(false);
 import type { Params, ExportSettings } from "../params";
 import { DEFAULT_PARAMS, DEFAULT_EXPORT } from "../params";
 import { deriveMacro } from "./macros";
@@ -223,8 +230,12 @@ export const useStore = create<StoreApi>()(
         },
 
         setSource(meta) {
-          history.commitOnce("setSource", (d) => {
-            d.source = meta;
+          // Non-undoable: source meta is coupled to a runtime FrameSource and (for
+          // files) a re-link flow, so undoing a swap would desync meta from the
+          // live source. It is still persisted (autosave + .nodeflow capture it),
+          // just kept out of the undo timeline.
+          set((s) => {
+            s.project.source = meta;
           });
         },
 

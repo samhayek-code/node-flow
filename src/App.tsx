@@ -15,15 +15,19 @@ import { createState } from "./pipeline/types";
 import type { FrameSource } from "./pipeline/source";
 import { GeneratedSource, createFileSource } from "./pipeline/source";
 import { useNodeVideoControls } from "./ui/controls";
-import { useStore, bridge, DEFAULT_MACROS } from "./store/store";
+import { useStore, bridge } from "./store/store";
+import type { ProjectDoc } from "./store/types";
 import { createSignalBank } from "./audio/signalBank";
-import { DEFAULT_PARAMS, DEFAULT_EXPORT } from "./params";
+import { serializeProject } from "./project/schema";
+import {
+  startAutosave,
+  pokeAutosave,
+  loadAutosave,
+  saveProjectToDisk,
+  openProjectFromDisk,
+} from "./project/persistence";
 import type { ExportSettings, EffectType, BoxShape, ConnectorStyle } from "./params";
 import "./app.css";
-
-const PARAM_KEYS = Object.keys(DEFAULT_PARAMS);
-const MACRO_KEYS = Object.keys(DEFAULT_MACROS);
-const EXPORT_KEYS = Object.keys(DEFAULT_EXPORT);
 
 const LEVA_THEME = {
   colors: {
@@ -62,7 +66,7 @@ const FOLDER_DECOR: Record<string, { color: string; icon: string }> = {
   Connectors: { color: "#a78bfa", icon: splineIcon },
   Effect: { color: "#f472b6", icon: wandIcon },
   Export: { color: "#34d399", icon: filmIcon },
-  Presets: { color: "#9ca3af", icon: bookmarkIcon },
+  Project: { color: "#9ca3af", icon: bookmarkIcon },
 };
 
 const PALETTE = ["#ffffff", "#6ea8fe", "#ff6b6b", "#ffd166", "#06d6a0", "#f72585", "#4cc9f0", "#80ffdb", "#ff9e00", "#b5179e"];
@@ -104,7 +108,6 @@ function formatTime(s: number): string {
 export function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const presetInputRef = useRef<HTMLInputElement>(null);
 
   const sourceRef = useRef<FrameSource>(new GeneratedSource());
   const rendererRef = useRef(new Canvas2DRenderer());
@@ -130,6 +133,7 @@ export function App() {
   const [exportProgress, setExportProgress] = useState<number | null>(null);
   const raw = useStore((s) => s.view.raw);
   const exportCfg = useStore((s) => s.project.export);
+  const needsRelink = useStore((s) => s.ui.needsRelink);
   const [locked, setLocked] = useState(false);
   const [lockedDims, setLockedDims] = useState({ w: 960, h: 540 });
   const [zoom, setZoom] = useState(1);
@@ -162,6 +166,9 @@ export function App() {
     swapSource(new GeneratedSource());
     lockedRef.current = false;
     setLocked(false);
+    const st = useStore.getState();
+    st.setSource({ kind: "generated", duration: null });
+    st.setUi({ needsRelink: false });
     flash("Source: generated");
   }, [swapSource, flash]);
 
@@ -181,6 +188,9 @@ export function App() {
         lockedRef.current = true;
         setLockedDims({ w: rw, h: rh });
         setLocked(true);
+        const st = useStore.getState();
+        st.setSource({ kind: "file", fileName: file.name, w: rw, h: rh, duration: src.duration ?? null });
+        st.setUi({ needsRelink: false });
         flash(`Loaded ${file.name}`);
       } catch {
         flash("Could not load that video");
@@ -209,16 +219,47 @@ export function App() {
     void sourceRef.current.seekTo(Number(e.target.value));
   }, []);
 
-  const savePreset = useCallback(() => {
-    const { params, macros, export: ex } = useStore.getState().project;
-    const out = { ...params, ...macros, ...ex };
-    const blob = new Blob([JSON.stringify(out, null, 2)], { type: "application/json" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `node-flow-preset-${Date.now()}.json`;
-    a.click();
-    URL.revokeObjectURL(a.href);
-  }, []);
+  const saveProject = useCallback(async () => {
+    try {
+      const file = serializeProject(useStore.getState().project);
+      await saveProjectToDisk(file);
+      flash("Project saved");
+    } catch (e) {
+      if ((e as Error).message !== "cancelled") flash("Save failed");
+    }
+  }, [flash]);
+
+  // Reset the runtime pipeline for a freshly loaded doc. Restored projects start
+  // from a generated placeholder; a file source flags the re-link prompt.
+  const applyRestoredSource = useCallback(
+    (doc: ProjectDoc) => {
+      swapSource(new GeneratedSource());
+      const st = useStore.getState();
+      if (doc.source.kind === "file" && doc.source.w && doc.source.h) {
+        lockedDimsRef.current = { w: doc.source.w, h: doc.source.h };
+        lockedRef.current = true;
+        setLockedDims({ w: doc.source.w, h: doc.source.h });
+        setLocked(true);
+        st.setUi({ needsRelink: true });
+      } else {
+        lockedRef.current = false;
+        setLocked(false);
+        st.setUi({ needsRelink: false });
+      }
+    },
+    [swapSource],
+  );
+
+  const openProject = useCallback(async () => {
+    try {
+      const doc = await openProjectFromDisk();
+      useStore.getState().loadProject(doc);
+      applyRestoredSource(doc);
+      flash("Project opened");
+    } catch (e) {
+      if ((e as Error).message !== "cancelled") flash("Could not open project");
+    }
+  }, [flash, applyRestoredSource]);
 
   const runExport = useCallback(async () => {
     if (exportProgress !== null) return;
@@ -255,8 +296,8 @@ export function App() {
 
   const { set } = useNodeVideoControls(
     {
-      onSavePreset: savePreset,
-      onLoadPreset: () => presetInputRef.current?.click(),
+      onSaveProject: saveProject,
+      onOpenProject: openProject,
     },
     locked,
   );
@@ -351,24 +392,31 @@ export function App() {
     return () => obs.disconnect();
   }, []);
 
-  const loadPresetFile = useCallback(
-    async (file: File) => {
-      try {
-        const parsed = JSON.parse(await file.text());
-        const flat: Record<string, unknown> = {};
-        for (const k of PARAM_KEYS) if (k in parsed) flat[k] = parsed[k];
-        for (const k of MACRO_KEYS) if (k in parsed) flat[k] = parsed[k];
-        useStore.getState().applyLook(flat);
-        const ex: Record<string, unknown> = {};
-        for (const k of EXPORT_KEYS) if (k in parsed) ex[k] = parsed[k];
-        if (Object.keys(ex).length) useStore.getState().patchExport(ex as Partial<ExportSettings>);
-        flash("Preset loaded");
-      } catch {
-        flash("Invalid preset file");
+  // Autosave + restore. Load the last session on boot, then persist every change
+  // (debounced) so work survives reloads and crashes.
+  useEffect(() => {
+    let cancelled = false;
+    let stop = () => {};
+    void (async () => {
+      const doc = await loadAutosave();
+      if (cancelled) return;
+      if (doc) {
+        useStore.getState().loadProject(doc);
+        applyRestoredSource(doc);
       }
-    },
-    [flash],
-  );
+      // Start persisting only AFTER restore so we never write defaults over saved work.
+      stop = startAutosave(() => useStore.getState().project);
+    })();
+    const unsub = useStore.subscribe(
+      (s) => s.project,
+      () => pokeAutosave(),
+    );
+    return () => {
+      cancelled = true;
+      unsub();
+      stop();
+    };
+  }, [applyRestoredSource]);
 
   // The render loop.
   useEffect(() => {
@@ -581,6 +629,15 @@ export function App() {
                 <div>Decoding video…</div>
               </div>
             )}
+            {needsRelink && (
+              <div className="nv-relink">
+                <span>This project used a video.</span>
+                <button className="nv-relink-btn" onClick={() => fileInputRef.current?.click()}>
+                  Re-link video
+                </button>
+                <span>or drop it in.</span>
+              </div>
+            )}
             <div className="nv-zoom">
               <button className="nv-zoom-btn" onClick={() => setZoom((z) => Math.max(0.15, z * 0.9))} aria-label="Zoom out">
                 <ZoomOut size={14} strokeWidth={2} />
@@ -739,13 +796,6 @@ export function App() {
         accept="video/*"
         hidden
         onChange={(e) => e.target.files?.[0] && loadFile(e.target.files[0])}
-      />
-      <input
-        ref={presetInputRef}
-        type="file"
-        accept="application/json"
-        hidden
-        onChange={(e) => e.target.files?.[0] && loadPresetFile(e.target.files[0])}
       />
     </div>
   );
