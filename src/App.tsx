@@ -436,6 +436,7 @@ export function App() {
         modSources: proj.modSources,
         signalBank: sigRef.current,
         gpu: gpuOn ? gpuRef.current : null,
+        audioBuffer: sigRef.current.activeBuffer(),
         onProgress: (v: number) => setExportProgress(v),
       };
       if (proj.export.format === "png") {
@@ -1016,6 +1017,16 @@ export function App() {
                   name="exportBitrateMbps"
                   value={exportCfg.exportBitrateMbps}
                   onChange={(e) => updateExport({ exportBitrateMbps: Number(e.target.value) })}
+                />
+              </label>
+            )}
+            {audioTrackName && exportCfg.format !== "png" && (
+              <label className="nv-field nv-field-check">
+                <span>Include audio</span>
+                <input
+                  type="checkbox"
+                  checked={exportCfg.includeAudio}
+                  onChange={(e) => updateExport({ includeAudio: e.target.checked })}
                 />
               </label>
             )}

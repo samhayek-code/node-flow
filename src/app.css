@@ -841,3 +841,10 @@ button svg,
   min-width: 0;
   accent-color: var(--accent);
 }
+
+.nv-field-check input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}

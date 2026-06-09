@@ -35,6 +35,8 @@ export interface AudioEngine extends SignalBank {
    *  playing — the render loop uses this as clip time when present. */
   position(): number | null;
   duration(): number | null;
+  /** Decoded PCM of the active track, for muxing into an export. null if none. */
+  activeBuffer(): AudioBuffer | null;
   dispose(): void;
 }
 
@@ -130,6 +132,11 @@ class WebAudioEngine implements AudioEngine {
   duration(): number | null {
     const e = this.activeId ? this.envelopes.get(this.activeId) : null;
     return e ? e.duration : null;
+  }
+
+  activeBuffer(): AudioBuffer | null {
+    const e = this.activeId ? this.envelopes.get(this.activeId) : null;
+    return e ? e.buffer : null;
   }
 
   async loadTrack(mediaId: string, file: File, autoplay = true): Promise<{ duration: number }> {

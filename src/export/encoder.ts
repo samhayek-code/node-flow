@@ -21,7 +21,74 @@ export interface ExportOptions {
   /** GPU effect accelerator (P1-B). Effects match Canvas2D exactly, so exports
    *  stay deterministic; omitted = CPU effects. */
   gpu?: WebGPURenderer | null;
+  /** Decoded music track to mux in (P1-C), gated by settings.includeAudio. */
+  audioBuffer?: AudioBuffer | null;
   onProgress: (value: number) => void;
+}
+
+/** Resolve an AAC config the browser accepts, or null to export silently. */
+async function pickAudioConfig(buffer: AudioBuffer): Promise<AudioEncoderConfig | null> {
+  if (typeof AudioEncoder === "undefined") return null;
+  const cfg: AudioEncoderConfig = {
+    codec: "mp4a.40.2",
+    sampleRate: buffer.sampleRate,
+    numberOfChannels: Math.min(2, buffer.numberOfChannels),
+    bitrate: 192_000,
+  };
+  try {
+    const { supported } = await AudioEncoder.isConfigSupported(cfg);
+    return supported ? cfg : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Encode `seconds` of the track (looped) into the muxer's audio track. */
+async function encodeAudioTrack(
+  muxer: Muxer<ArrayBufferTarget>,
+  buffer: AudioBuffer,
+  cfg: AudioEncoderConfig,
+  seconds: number,
+): Promise<void> {
+  const sampleRate = cfg.sampleRate;
+  const channels = cfg.numberOfChannels;
+  let failure: Error | null = null;
+  const enc = new AudioEncoder({
+    output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
+    error: (e) => {
+      failure = failure ?? (e as Error);
+    },
+  });
+  enc.configure(cfg);
+
+  const srcLen = buffer.length;
+  const chData: Float32Array[] = [];
+  for (let c = 0; c < channels; c++) chData.push(buffer.getChannelData(c));
+  const total = Math.ceil(seconds * sampleRate);
+  const CHUNK = 4096;
+  for (let off = 0; off < total; off += CHUNK) {
+    if (failure) throw failure;
+    const n = Math.min(CHUNK, total - off);
+    const planar = new Float32Array(n * channels);
+    for (let c = 0; c < channels; c++) {
+      const dst = c * n;
+      const src = chData[c];
+      for (let i = 0; i < n; i++) planar[dst + i] = src[(off + i) % srcLen]; // loop track
+    }
+    const ad = new AudioData({
+      format: "f32-planar",
+      sampleRate,
+      numberOfFrames: n,
+      numberOfChannels: channels,
+      timestamp: Math.round((off / sampleRate) * 1_000_000),
+      data: planar,
+    });
+    enc.encode(ad);
+    ad.close();
+  }
+  await enc.flush();
+  if (failure) throw failure;
+  enc.close();
 }
 
 // Tried in order; first config the browser accepts wins. Covers up to 4K.
@@ -70,9 +137,15 @@ export async function renderToMp4(opts: ExportOptions): Promise<ArrayBuffer> {
   // and resolveFrame must scale by what we actually render at to stay WYSIWYG.
   const scale = width / Math.max(1, params.renderWidth);
 
+  const audioBuffer = settings.includeAudio ? (opts.audioBuffer ?? null) : null;
+  const audioCfg = audioBuffer ? await pickAudioConfig(audioBuffer) : null;
+
   const muxer = new Muxer({
     target: new ArrayBufferTarget(),
     video: { codec: "avc", width, height },
+    ...(audioCfg
+      ? { audio: { codec: "aac", numberOfChannels: audioCfg.numberOfChannels, sampleRate: audioCfg.sampleRate } }
+      : {}),
     fastStart: "in-memory",
   });
 
@@ -131,6 +204,7 @@ export async function renderToMp4(opts: ExportOptions): Promise<ArrayBuffer> {
     }
     await encoder.flush();
     if (failure) throw failure;
+    if (audioBuffer && audioCfg) await encodeAudioTrack(muxer, audioBuffer, audioCfg, settings.exportSeconds);
     muxer.finalize();
   } finally {
     if (encoder.state !== "closed") encoder.close();
