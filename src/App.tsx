@@ -26,6 +26,11 @@ import {
   saveProjectToDisk,
   openProjectFromDisk,
 } from "./project/persistence";
+import { supports } from "./util/browser";
+
+// Export needs WebCodecs (VideoEncoder); the editor itself runs on Canvas2D
+// everywhere. Detect once so we can gate export with a clear reason.
+const CAN_EXPORT = supports.webCodecs();
 import type { ExportSettings, EffectType, BoxShape, ConnectorStyle } from "./params";
 import "./app.css";
 
@@ -690,9 +695,14 @@ export function App() {
                 Generated source — drag in a video to scrub a timeline, or export this pattern.
               </span>
             )}
-            <button className="nv-export" onClick={() => setShowExport(true)} disabled={exportProgress !== null}>
+            <button
+              className="nv-export"
+              onClick={() => setShowExport(true)}
+              disabled={exportProgress !== null || !CAN_EXPORT}
+              title={CAN_EXPORT ? undefined : "Export needs WebCodecs — use Chrome or Edge"}
+            >
               <Download size={16} strokeWidth={2.2} />
-              Export .mp4
+              {CAN_EXPORT ? "Export .mp4" : "Export (Chrome/Edge)"}
             </button>
           </footer>
         </div>
