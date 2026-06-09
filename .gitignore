@@ -6,3 +6,6 @@ dist
 .vercel
 
 coverage/
+
+# CI workflow kept local until the GitHub token has the `workflow` scope
+.github/workflows/ci.yml
