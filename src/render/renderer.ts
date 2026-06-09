@@ -30,20 +30,10 @@ export interface Renderer {
   dispose?(): void;
 }
 
-export async function createRenderer(
-  prefer: "auto" | "webgpu" | "canvas2d" = "canvas2d",
-): Promise<Renderer> {
-  if (prefer !== "canvas2d" && "gpu" in navigator) {
-    try {
-      // @ts-expect-error webgpu backend lands in P1-B
-      const { WebGPURenderer } = await import("./webgpu/renderer");
-      const r = new WebGPURenderer();
-      await r.init?.();
-      return r;
-    } catch {
-      /* fall through */
-    }
-  }
+/** Canvas2D is the default + fallback backend. The WebGPU renderer
+ *  (./webgpu/renderer) is wired through the App behind a flag during P1-B and
+ *  reconnected here once it conforms to the full Renderer interface. */
+export async function createRenderer(): Promise<Renderer> {
   const { Canvas2DRenderer } = await import("./compose");
   return new Canvas2DRenderer();
 }

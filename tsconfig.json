@@ -12,7 +12,7 @@
     "moduleDetection": "force",
     "noEmit": true,
     "jsx": "react-jsx",
-    "types": ["vitest/globals"],
+    "types": ["vitest/globals", "@webgpu/types"],
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
