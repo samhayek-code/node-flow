@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Leva } from "leva";
-import { Shuffle, Download, Sparkles, Film, Play, Pause, Workflow, Boxes, Activity, Maximize2, Eye, EyeOff, ZoomIn, ZoomOut, Maximize } from "lucide-react";
+import { Shuffle, Download, Sparkles, Film, Play, Pause, Workflow, Boxes, Activity, Maximize2, Eye, EyeOff, ZoomIn, ZoomOut, Maximize, Music, X } from "lucide-react";
 import slidersIcon from "lucide-static/icons/sliders-horizontal.svg";
 import monitorIcon from "lucide-static/icons/monitor.svg";
 import activityIcon from "lucide-static/icons/activity.svg";
@@ -16,7 +16,7 @@ import type { FrameSource } from "./pipeline/source";
 import { GeneratedSource, createFileSource } from "./pipeline/source";
 import { useNodeVideoControls } from "./ui/controls";
 import { useStore, bridge } from "./store/store";
-import type { ProjectDoc } from "./store/types";
+import type { ProjectDoc, ModParam } from "./store/types";
 import { createSignalBank } from "./audio/signalBank";
 import { serializeProject } from "./project/schema";
 import {
@@ -31,6 +31,16 @@ import { supports } from "./util/browser";
 // Export needs WebCodecs (VideoEncoder); the editor itself runs on Canvas2D
 // everywhere. Detect once so we can gate export with a clear reason.
 const CAN_EXPORT = supports.webCodecs();
+
+// v1 audio modulation: one loaded track drives this default set of params (the
+// real, persisted modulators[] mod-matrix underneath). The Depth knob scales
+// each target by its weight; Responsiveness sets the envelope smoothing on all.
+const AUDIO_TARGETS: { target: ModParam; weight: number }[] = [
+  { target: "boxScale", weight: 0.6 },
+  { target: "pixelSize", weight: 0.45 },
+  { target: "connectorMaxDist", weight: 0.5 },
+];
+const audioWeight = (t: ModParam) => AUDIO_TARGETS.find((a) => a.target === t)?.weight ?? 0.5;
 import type { ExportSettings, EffectType, BoxShape, ConnectorStyle } from "./params";
 import "./app.css";
 
@@ -113,6 +123,7 @@ function formatTime(s: number): string {
 export function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const audioInputRef = useRef<HTMLInputElement>(null);
 
   const sourceRef = useRef<FrameSource>(new GeneratedSource());
   const rendererRef = useRef(new Canvas2DRenderer());
@@ -144,6 +155,10 @@ export function App() {
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [showExport, setShowExport] = useState(false);
+  const [audioTrackName, setAudioTrackName] = useState<string | null>(null);
+  const [audioDepth, setAudioDepth] = useState(0.4);
+  const [audioResp, setAudioResp] = useState(0.5);
+  const [audioPlaying, setAudioPlaying] = useState(false);
 
   // Keep the loop's store mirror current (project + view only; ui/transient excluded).
   useEffect(
@@ -218,6 +233,82 @@ export function App() {
 
   const updateExport = useCallback((patch: Partial<ExportSettings>) => {
     useStore.getState().patchExport(patch);
+  }, []);
+
+  // --- Audio modulation (P1-A) ---
+  const loadAudio = useCallback(
+    async (file: File) => {
+      try {
+        const mediaId =
+          typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `aud_${Date.now()}`;
+        const { duration } = await sigRef.current.loadTrack(mediaId, file, true);
+        const st = useStore.getState();
+        const existing = st.project.modSources.find((ms) => ms.kind === "audio");
+        if (existing) st.removeModSource(existing.id); // one track in v1
+        const sourceId = st.addModSource({ kind: "audio", audio: { mediaId, fileName: file.name, duration } });
+        for (const { target, weight } of AUDIO_TARGETS) {
+          st.addModulator({
+            enabled: true,
+            sourceId,
+            target,
+            depth: audioDepth * weight,
+            responsiveness: audioResp,
+            channel: "rms",
+          });
+        }
+        setAudioTrackName(file.name);
+        setAudioPlaying(true);
+        flash(`Audio: ${file.name}`);
+      } catch (e) {
+        flash(`Could not load audio: ${(e as Error).message}`);
+      }
+    },
+    [audioDepth, audioResp, flash],
+  );
+
+  const setAudioDepthKnob = useCallback((v: number) => {
+    setAudioDepth(v);
+    const st = useStore.getState();
+    const audioSrc = st.project.modSources.find((ms) => ms.kind === "audio");
+    if (!audioSrc) return;
+    for (const m of st.project.modulators) {
+      if (m.sourceId === audioSrc.id) st.updateModulator(m.id, { depth: v * audioWeight(m.target) });
+    }
+  }, []);
+
+  const setAudioRespKnob = useCallback((v: number) => {
+    setAudioResp(v);
+    const st = useStore.getState();
+    const audioSrc = st.project.modSources.find((ms) => ms.kind === "audio");
+    if (!audioSrc) return;
+    for (const m of st.project.modulators) {
+      if (m.sourceId === audioSrc.id) st.updateModulator(m.id, { responsiveness: v });
+    }
+  }, []);
+
+  const toggleAudio = useCallback(() => {
+    const next = !sigRef.current.playing;
+    sigRef.current.setPlaying(next);
+    setAudioPlaying(next);
+  }, []);
+
+  const removeAudio = useCallback(() => {
+    const st = useStore.getState();
+    const audioSrc = st.project.modSources.find((ms) => ms.kind === "audio");
+    if (audioSrc?.audio) sigRef.current.unload(audioSrc.audio.mediaId);
+    if (audioSrc) st.removeModSource(audioSrc.id);
+    sigRef.current.stop();
+    setAudioTrackName(null);
+    setAudioPlaying(false);
+  }, []);
+
+  // Close the AudioContext on unmount. (Dev: expose the engine for debugging.)
+  useEffect(() => {
+    const engine = sigRef.current;
+    if (import.meta.env.DEV) {
+      (globalThis as unknown as { __nfAudio?: unknown }).__nfAudio = engine;
+    }
+    return () => engine.dispose();
   }, []);
 
   const onScrub = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -406,6 +497,13 @@ export function App() {
       const doc = await loadAutosave();
       if (cancelled) return;
       if (doc) {
+        // Audio media isn't embedded, so a restored project can't re-link a track
+        // (v1 audio is runtime). Strip orphaned audio mod-sources before loading.
+        const audioIds = new Set(doc.modSources.filter((ms) => ms.kind === "audio").map((ms) => ms.id));
+        if (audioIds.size) {
+          doc.modSources = doc.modSources.filter((ms) => ms.kind !== "audio");
+          doc.modulators = doc.modulators.filter((m) => !audioIds.has(m.sourceId));
+        }
         useStore.getState().loadProject(doc);
         applyRestoredSource(doc);
       }
@@ -450,8 +548,10 @@ export function App() {
         }
 
         // The single funnel: resolve modulators at clip time, scale (1 in preview),
-        // inject raw — identical to the export path.
-        const clipTime = src.seekable ? src.currentTime : frameRef.current / 60;
+        // inject raw — identical to the export path. When audio is playing it is
+        // the clip clock, so visuals pulse in sync with what you hear.
+        const audioPos = sigRef.current.position();
+        const clipTime = audioPos != null ? audioPos : src.seekable ? src.currentTime : frameRef.current / 60;
         const p = resolveFrame(
           base,
           proj.modulators,
@@ -588,6 +688,58 @@ export function App() {
                 File
               </button>
             </div>
+          </div>
+
+          <div className="nv-section nv-audio">
+            <div className="nv-label">Audio</div>
+            {audioTrackName ? (
+              <div className="nv-audio-loaded">
+                <div className="nv-audio-row">
+                  <button
+                    className="nv-audio-play"
+                    onClick={toggleAudio}
+                    aria-label={audioPlaying ? "Pause track" : "Play track"}
+                  >
+                    {audioPlaying ? <Pause size={13} fill="currentColor" /> : <Play size={13} fill="currentColor" />}
+                  </button>
+                  <span className="nv-audio-name" title={audioTrackName}>
+                    {audioTrackName}
+                  </span>
+                  <button className="nv-audio-x" onClick={removeAudio} aria-label="Remove track">
+                    <X size={13} strokeWidth={2.2} />
+                  </button>
+                </div>
+                <label className="nv-audio-knob">
+                  <span>Depth</span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.01}
+                    value={audioDepth}
+                    onPointerDown={() => useStore.getState().beginDrag()}
+                    onChange={(e) => setAudioDepthKnob(Number(e.target.value))}
+                  />
+                </label>
+                <label className="nv-audio-knob">
+                  <span>Responsiveness</span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.01}
+                    value={audioResp}
+                    onPointerDown={() => useStore.getState().beginDrag()}
+                    onChange={(e) => setAudioRespKnob(Number(e.target.value))}
+                  />
+                </label>
+              </div>
+            ) : (
+              <button className="nv-audio-load" onClick={() => audioInputRef.current?.click()}>
+                <Music size={15} strokeWidth={2} />
+                Load track…
+              </button>
+            )}
           </div>
 
           <div
@@ -806,6 +958,13 @@ export function App() {
         accept="video/*"
         hidden
         onChange={(e) => e.target.files?.[0] && loadFile(e.target.files[0])}
+      />
+      <input
+        ref={audioInputRef}
+        type="file"
+        accept="audio/*"
+        hidden
+        onChange={(e) => e.target.files?.[0] && loadAudio(e.target.files[0])}
       />
     </div>
   );
