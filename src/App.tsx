@@ -48,6 +48,15 @@ const audioWeight = (t: ModParam) => AUDIO_TARGETS.find((a) => a.target === t)?.
 const GPU_FLAG =
   (typeof location !== "undefined" && new URLSearchParams(location.search).has("gpu")) ||
   (typeof localStorage !== "undefined" && localStorage.getItem("nf-gpu") === "1");
+
+// Export resolution presets — target height; "Source" keeps the base dims (1×).
+// The scale is derived from the current base so 4K is one click from any canvas.
+const RES_PRESETS: { label: string; h: number | null }[] = [
+  { label: "Source", h: null },
+  { label: "720p", h: 720 },
+  { label: "1080p", h: 1080 },
+  { label: "4K", h: 2160 },
+];
 import type { ExportSettings, ExportFormat, EffectType, BoxShape, ConnectorStyle } from "./params";
 import "./app.css";
 
@@ -964,20 +973,21 @@ export function App() {
             <div className="nv-field nv-field-col">
               <span>Resolution</span>
               <div className="nv-scale-grid">
-                {[0.25, 0.5, 1, 2].map((s) => {
+                {RES_PRESETS.map((preset) => {
                   const base = useStore.getState().project.params;
                   const bw = locked ? lockedDims.w : base.renderWidth;
                   const bh = locked ? lockedDims.h : base.renderHeight;
-                  const w = Math.round((bw * s) / 2) * 2;
-                  const h = Math.round((bh * s) / 2) * 2;
+                  const scale = preset.h ? preset.h / Math.max(1, bh) : 1;
+                  const w = Math.round((bw * scale) / 2) * 2;
+                  const h = Math.round((bh * scale) / 2) * 2;
                   return (
                     <button
-                      key={s}
+                      key={preset.label}
                       className="nv-scale-btn"
-                      data-active={exportCfg.exportScale === s || undefined}
-                      onClick={() => updateExport({ exportScale: s })}
+                      data-active={Math.abs(exportCfg.exportScale - scale) < 0.001 || undefined}
+                      onClick={() => updateExport({ exportScale: scale })}
                     >
-                      <b>{Math.round(s * 100)}%</b>
+                      <b>{preset.label}</b>
                       <span>
                         {w}×{h}
                       </span>
