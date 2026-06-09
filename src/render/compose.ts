@@ -104,7 +104,7 @@ export class Canvas2DRenderer implements Renderer {
     }
   }
 
-  render(
+  async render(
     out: CanvasRenderingContext2D,
     w: number,
     h: number,
@@ -112,7 +112,8 @@ export class Canvas2DRenderer implements Renderer {
     frameIndex: number,
     p: RenderParams,
     state: PipelineState,
-  ): Blob[] {
+    awaitGpu = false,
+  ): Promise<Blob[]> {
     this.resizeWork(w, h);
 
     // 1. Source → work canvas at render resolution.
@@ -142,6 +143,7 @@ export class Canvas2DRenderer implements Renderer {
     if (p.effect !== "none") {
       if (this.gpu && gpuSupportsEffect(p.effect)) {
         this.gpu.renderEffect(this.work, w, h, p);
+        if (awaitGpu) await this.gpu.flush();
         this.fxCtx.clearRect(0, 0, w, h);
         this.fxCtx.drawImage(this.gpu.output(), 0, 0, w, h);
       } else {

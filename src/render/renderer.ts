@@ -17,7 +17,9 @@ export interface Renderer {
   /** Async one-time setup. Canvas2D resolves instantly; WebGPU requests a device / spins a worker. */
   init?(canvas: HTMLCanvasElement | OffscreenCanvas): Promise<void>;
   resize?(w: number, h: number): void;
-  /** p is ALREADY resolved + scaled. Backends never see modulators. Returns blobs for the HUD. */
+  /** p is ALREADY resolved + scaled. Backends never see modulators. Returns blobs
+   *  for the HUD. Async because a GPU backend may await frame completion;
+   *  `awaitGpu` forces that wait (export = frame-perfect; preview = fire-and-forget). */
   render(
     ctx: CanvasRenderingContext2D,
     w: number,
@@ -26,7 +28,8 @@ export interface Renderer {
     frameIndex: number,
     p: RenderParams,
     state: PipelineState,
-  ): Blob[];
+    awaitGpu?: boolean,
+  ): Promise<Blob[]>;
   dispose?(): void;
 }
 

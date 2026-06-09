@@ -288,6 +288,13 @@ export class WebGPURenderer {
     device.queue.submit([encoder.finish()]);
   }
 
+  /** Block until submitted GPU work completes — call before reading the output
+   *  (drawImage) when frame-perfection matters, e.g. export. Preview skips this
+   *  (a one-frame-late effect is imperceptible) to avoid the per-frame stall. */
+  async flush(): Promise<void> {
+    await this.gpu.device.queue.onSubmittedWorkDone();
+  }
+
   dispose(): void {
     this.srcTex?.destroy();
     this.srcTex = null;

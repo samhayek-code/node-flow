@@ -435,6 +435,7 @@ export function App() {
         modulators: proj.modulators,
         modSources: proj.modSources,
         signalBank: sigRef.current,
+        gpu: gpuOn ? gpuRef.current : null,
         onProgress: (v) => setExportProgress(v),
       });
       flash("Export complete");
@@ -444,7 +445,7 @@ export function App() {
       exportingRef.current = false;
       setExportProgress(null);
     }
-  }, [exportProgress, flash]);
+  }, [exportProgress, flash, gpuOn]);
 
   const confirmExport = useCallback(() => {
     setShowExport(false);
@@ -591,68 +592,73 @@ export function App() {
     let lastTransport = 0;
     let frames = 0;
 
+    let inFlight = false;
     const loop = () => {
-      if (exportingRef.current) {
-        raf = requestAnimationFrame(loop);
-        return;
-      }
-      try {
-        const proj = projRef.current;
-        const view = viewRef.current;
-        const base = proj.params;
-        const src = sourceRef.current;
-        const w = lockedRef.current ? lockedDimsRef.current.w : Math.max(16, Math.round(base.renderWidth));
-        const h = lockedRef.current ? lockedDimsRef.current.h : Math.max(16, Math.round(base.renderHeight));
-        if (canvas.width !== w || canvas.height !== h) {
-          canvas.width = w;
-          canvas.height = h;
-        }
-
-        // The single funnel: resolve modulators at clip time, scale (1 in preview),
-        // inject raw — identical to the export path. When audio is playing it is
-        // the clip clock, so visuals pulse in sync with what you hear.
-        const audioPos = sigRef.current.position();
-        const clipTime = audioPos != null ? audioPos : src.seekable ? src.currentTime : frameRef.current / 60;
-        const p = resolveFrame(
-          base,
-          proj.modulators,
-          proj.modSources,
-          { frame: frameRef.current, clipTime, fps: 60, scale: 1, raw: view.raw },
-          sigRef.current,
-        );
-        const blobs = rendererRef.current.render(ctx, w, h, src, frameRef.current, p, stateRef.current);
-        frameRef.current++;
-        frames++;
-
-        const now = performance.now();
-        if (now - lastHud >= 500) {
-          setHud({ source: src.kind, w, h, blobs: blobs.length, fps: Math.round((frames * 1000) / (now - lastHud)) });
-          frames = 0;
-          lastHud = now;
-        }
-        if (now - lastTransport >= 100) {
-          lastTransport = now;
-          setTransport({
-            seekable: src.seekable,
-            time: src.currentTime,
-            duration: src.duration ?? 0,
-            playing: src.playing,
-          });
-        }
-        if (renderErrRef.current) {
-          renderErrRef.current = false;
-          setToast(null);
-        }
-      } catch (err) {
-        // Keep the loop alive: a transient bad param/frame must not freeze the
-        // preview. Surface once, then clear automatically on the next good frame.
-        if (!renderErrRef.current) {
-          renderErrRef.current = true;
-          console.error("[node-flow] render error:", err);
-          setToast("Render error — adjust params or reload (see console)");
-        }
-      }
       raf = requestAnimationFrame(loop);
+      if (exportingRef.current || inFlight) return; // skip while a frame is rendering
+      inFlight = true;
+      void (async () => {
+        try {
+          const proj = projRef.current;
+          const view = viewRef.current;
+          const base = proj.params;
+          const src = sourceRef.current;
+          const w = lockedRef.current ? lockedDimsRef.current.w : Math.max(16, Math.round(base.renderWidth));
+          const h = lockedRef.current ? lockedDimsRef.current.h : Math.max(16, Math.round(base.renderHeight));
+          if (canvas.width !== w || canvas.height !== h) {
+            canvas.width = w;
+            canvas.height = h;
+          }
+
+          // The single funnel: resolve modulators at clip time, scale (1 in preview),
+          // inject raw — identical to the export path. When audio is playing it is
+          // the clip clock, so visuals pulse in sync with what you hear.
+          const audioPos = sigRef.current.position();
+          const clipTime = audioPos != null ? audioPos : src.seekable ? src.currentTime : frameRef.current / 60;
+          const p = resolveFrame(
+            base,
+            proj.modulators,
+            proj.modSources,
+            { frame: frameRef.current, clipTime, fps: 60, scale: 1, raw: view.raw },
+            sigRef.current,
+          );
+          // Preview is fire-and-forget on GPU (awaitGpu=false): a one-frame-late
+          // effect is imperceptible and keeps the frame rate up.
+          const blobs = await rendererRef.current.render(ctx, w, h, src, frameRef.current, p, stateRef.current, false);
+          frameRef.current++;
+          frames++;
+
+          const now = performance.now();
+          if (now - lastHud >= 500) {
+            setHud({ source: src.kind, w, h, blobs: blobs.length, fps: Math.round((frames * 1000) / (now - lastHud)) });
+            frames = 0;
+            lastHud = now;
+          }
+          if (now - lastTransport >= 100) {
+            lastTransport = now;
+            setTransport({
+              seekable: src.seekable,
+              time: src.currentTime,
+              duration: src.duration ?? 0,
+              playing: src.playing,
+            });
+          }
+          if (renderErrRef.current) {
+            renderErrRef.current = false;
+            setToast(null);
+          }
+        } catch (err) {
+          // Keep the loop alive: a transient bad param/frame must not freeze the
+          // preview. Surface once, then clear automatically on the next good frame.
+          if (!renderErrRef.current) {
+            renderErrRef.current = true;
+            console.error("[node-flow] render error:", err);
+            setToast("Render error — adjust params or reload (see console)");
+          }
+        } finally {
+          inFlight = false;
+        }
+      })();
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);

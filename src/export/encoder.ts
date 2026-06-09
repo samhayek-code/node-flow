@@ -7,6 +7,7 @@ import type { FrameSource } from "../pipeline/source";
 import type { Params, ExportSettings } from "../params";
 import type { Modulator, ModSource } from "../store/types";
 import type { SignalBank } from "../audio/signalBank";
+import type { WebGPURenderer } from "../render/webgpu/renderer";
 
 export interface ExportOptions {
   source: FrameSource;
@@ -17,6 +18,9 @@ export interface ExportOptions {
   modulators?: Modulator[];
   modSources?: ModSource[];
   signalBank?: SignalBank;
+  /** GPU effect accelerator (P1-B). Effects match Canvas2D exactly, so exports
+   *  stay deterministic; omitted = CPU effects. */
+  gpu?: WebGPURenderer | null;
   onProgress: (value: number) => void;
 }
 
@@ -87,6 +91,7 @@ export async function renderToMp4(opts: ExportOptions): Promise<ArrayBuffer> {
   const ctx = canvas.getContext("2d")!;
 
   const renderer = new Canvas2DRenderer();
+  renderer.setGpuEffect(opts.gpu ?? null);
   const state = createState();
   const frameDur = 1_000_000 / fps;
   const dur = source.duration;
@@ -107,7 +112,7 @@ export async function renderToMp4(opts: ExportOptions): Promise<ArrayBuffer> {
         { frame: i, clipTime, fps, scale, raw: false },
         sig,
       );
-      renderer.render(ctx, width, height, source, i, p, state);
+      await renderer.render(ctx, width, height, source, i, p, state, true);
 
       const frame = new VideoFrame(canvas, {
         timestamp: Math.round(i * frameDur),
